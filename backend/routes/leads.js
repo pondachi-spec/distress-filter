@@ -1,0 +1,375 @@
+const express = require('express');
+const router = express.Router();
+const fetch = require('node-fetch');
+const Lead = require('../models/Lead');
+const auth = require('../middleware/auth');
+const { Parser } = require('json2csv');
+
+// ==========================================
+// Motivation Score Engine
+// ==========================================
+function calcMotivationScore(props) {
+    let score = 0;
+    if (props.equityPercent > 40) score += 30;
+    if (props.isAbsenteeOwner) score += 25;
+    if (props.yearsOwned >= 10) score += 20;
+    if (props.isPreForeclosure) score += 30;
+    if (props.isTaxDelinquent) score += 25;
+    score = Math.min(score, 100);
+    let motivationClass = 'COLD';
+    if (score >= 70) motivationClass = 'HOT';
+    else if (score >= 40) motivationClass = 'WARM';
+    return { motivationScore: score, motivationClass };
+}
+
+// ==========================================
+// Demo Data Fallback (Tampa FL 33610)
+// ==========================================
+function buildDemoResponse() {
+    const raw = [
+        {
+            address: '4812 N 22nd St',       ownerName: 'Marcus T. Williams',
+            equityPercent: 72, estimatedValue: 214000, loanBalance: 59920,
+            isAbsenteeOwner: true,  yearsOwned: 14, isPreForeclosure: false, isTaxDelinquent: true,
+        },
+        {
+            address: '3107 E Hillsborough Ave', ownerName: 'Sandra R. Perez',
+            equityPercent: 85, estimatedValue: 189500, loanBalance: 28425,
+            isAbsenteeOwner: true,  yearsOwned: 18, isPreForeclosure: true,  isTaxDelinquent: false,
+        },
+        {
+            address: '5520 N Florida Ave',    ownerName: 'James A. Robinson',
+            equityPercent: 61, estimatedValue: 231000, loanBalance: 90090,
+            isAbsenteeOwner: false, yearsOwned: 11, isPreForeclosure: true,  isTaxDelinquent: true,
+        },
+        {
+            address: '2241 E Osborne Ave',    ownerName: 'Linda M. Carter',
+            equityPercent: 44, estimatedValue: 175000, loanBalance: 98000,
+            isAbsenteeOwner: true,  yearsOwned: 7,  isPreForeclosure: false, isTaxDelinquent: false,
+        },
+        {
+            address: '6830 N 40th St',        ownerName: 'Robert D. Thompson',
+            equityPercent: 55, estimatedValue: 198000, loanBalance: 89100,
+            isAbsenteeOwner: false, yearsOwned: 12, isPreForeclosure: false, isTaxDelinquent: true,
+        },
+        {
+            address: '1924 E Broad St',       ownerName: 'Patricia J. Nguyen',
+            equityPercent: 33, estimatedValue: 162000, loanBalance: 108540,
+            isAbsenteeOwner: true,  yearsOwned: 5,  isPreForeclosure: false, isTaxDelinquent: false,
+        },
+        {
+            address: '4401 N Rome Ave',       ownerName: 'Charles E. Davis',
+            equityPercent: 78, estimatedValue: 245000, loanBalance: 53900,
+            isAbsenteeOwner: false, yearsOwned: 21, isPreForeclosure: true,  isTaxDelinquent: false,
+        },
+        {
+            address: '3355 E Lake Ave',       ownerName: 'Dorothy L. Martinez',
+            equityPercent: 20, estimatedValue: 155000, loanBalance: 124000,
+            isAbsenteeOwner: false, yearsOwned: 3,  isPreForeclosure: false, isTaxDelinquent: false,
+        },
+    ];
+
+    const leads = raw.map((p, i) => {
+        const { motivationScore, motivationClass } = calcMotivationScore(p);
+        return {
+            _id: `demo-${i}`,
+            address: p.address,
+            city: 'Tampa',
+            state: 'FL',
+            zip: '33610',
+            ownerName: p.ownerName,
+            ownerPhone: '5127775555',
+            equityPercent: p.equityPercent,
+            estimatedValue: p.estimatedValue,
+            loanBalance: p.loanBalance,
+            isAbsenteeOwner: p.isAbsenteeOwner,
+            yearsOwned: p.yearsOwned,
+            isPreForeclosure: p.isPreForeclosure,
+            isTaxDelinquent: p.isTaxDelinquent,
+            propertyType: 'SFR',
+            motivationScore,
+            motivationClass,
+            attomId: null,
+            source: 'DEMO',
+            status: 'new',
+            isDemo: true,
+        };
+    });
+
+    leads.sort((a, b) => b.motivationScore - a.motivationScore);
+    return { count: leads.length, leads, isDemo: true };
+}
+
+// ==========================================
+// POST /api/leads/search — Fetch from ATTOM + score
+// ==========================================
+router.post('/search', auth, async (req, res) => {
+    const {
+        zipCode,
+        propertyType,
+        minEquity = 30,
+        absenteeOwner,
+        preForeclosure,
+        taxDelinquent
+    } = req.body;
+
+    if (!zipCode) {
+        return res.status(400).json({ error: 'Zip code is required.' });
+    }
+
+    try {
+        // Build ATTOM query params
+        const params = new URLSearchParams({
+            postalcode: zipCode,
+            pagesize: 50,
+            page: 1
+        });
+        if (propertyType) params.append('propertytype', propertyType);
+
+        const attomRes = await fetch(
+            `https://api.attomdata.com/propertyapi/v1.0.0/property/basicprofile?${params.toString()}`,
+            {
+                headers: {
+                    'apikey': process.env.ATTOM_API_KEY,
+                    'accept': 'application/json'
+                }
+            }
+        );
+
+        if (!attomRes.ok) {
+            const errText = await attomRes.text();
+            console.error('[ATTOM ERROR]', attomRes.status, errText);
+
+            if (attomRes.status === 401 || attomRes.status === 403) {
+                console.warn('[ATTOM] Auth failed — returning demo data');
+                return res.json(buildDemoResponse());
+            }
+
+            return res.status(502).json({ error: `ATTOM API error: ${attomRes.status}` });
+        }
+
+        const attomData = await attomRes.json();
+        const properties = attomData.property || [];
+
+        const leads = [];
+
+        for (const prop of properties) {
+            const address = prop.address || {};
+            const assessment = prop.assessment || {};
+            const sale = prop.sale || {};
+            const mortgage = prop.mortgage || {};
+            const owner = prop.owner || {};
+
+            // Calculate equity
+            const estimatedValue = assessment.market?.mktttlvalue || 0;
+            const loanBalance = mortgage.amount || 0;
+            const equityPercent = estimatedValue > 0
+                ? Math.round(((estimatedValue - loanBalance) / estimatedValue) * 100)
+                : 0;
+
+            // Years owned
+            const saleDate = sale.saleshistory?.[0]?.saleTransDate || null;
+            let yearsOwned = 0;
+            if (saleDate) {
+                const sold = new Date(saleDate);
+                yearsOwned = Math.floor((Date.now() - sold.getTime()) / (1000 * 60 * 60 * 24 * 365));
+            }
+
+            const isAbsenteeOwner = owner.absenteeInd === 'Y' || false;
+            const isPreForeclosure = prop.preforeclosure?.eventtype != null || false;
+            const isTaxDelinquent = prop.taxassessment?.delinquentYear != null || false;
+
+            // Apply filters
+            if (equityPercent < minEquity) continue;
+            if (absenteeOwner === true && !isAbsenteeOwner) continue;
+            if (preForeclosure === true && !isPreForeclosure) continue;
+            if (taxDelinquent === true && !isTaxDelinquent) continue;
+
+            const { motivationScore, motivationClass } = calcMotivationScore({
+                equityPercent, isAbsenteeOwner, yearsOwned, isPreForeclosure, isTaxDelinquent
+            });
+
+            const leadData = {
+                address: address.oneLine || `${address.line1 || ''} ${address.line2 || ''}`.trim(),
+                city: address.locality || '',
+                state: address.countrySubd || '',
+                zip: address.postal1 || zipCode,
+                ownerName: owner.owner1?.lastNameOrCorpName
+                    ? `${owner.owner1.firstNameAndMi || ''} ${owner.owner1.lastNameOrCorpName}`.trim()
+                    : 'Unknown',
+                ownerPhone: owner.phone || null,
+                equityPercent,
+                estimatedValue,
+                loanBalance,
+                isAbsenteeOwner,
+                yearsOwned,
+                isPreForeclosure,
+                isTaxDelinquent,
+                propertyType: prop.summary?.proptype || propertyType || 'SFR',
+                motivationScore,
+                motivationClass,
+                attomId: prop.identifier?.attomId || null,
+                source: 'ATTOM'
+            };
+
+            // Upsert into MongoDB
+            const saved = await Lead.findOneAndUpdate(
+                { attomId: leadData.attomId || leadData.address },
+                leadData,
+                { upsert: true, new: true, setDefaultsOnInsert: true }
+            );
+            leads.push(saved);
+        }
+
+        // Sort by motivation score descending
+        leads.sort((a, b) => b.motivationScore - a.motivationScore);
+
+        res.json({ count: leads.length, leads });
+    } catch (err) {
+        console.error('[SEARCH ERROR]', err);
+        res.status(500).json({ error: 'Search failed.', detail: err.message });
+    }
+});
+
+// ==========================================
+// GET /api/leads — Return all saved leads
+// ==========================================
+router.get('/', auth, async (req, res) => {
+    try {
+        const leads = await Lead.find().sort({ motivationScore: -1 });
+        res.json({ count: leads.length, leads });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to fetch leads.' });
+    }
+});
+
+// ==========================================
+// POST /api/leads/:id/send-to-alisha
+// ==========================================
+router.post('/:id/send-to-alisha', auth, async (req, res) => {
+    try {
+        // Handle both real MongoDB leads and demo leads
+        let lead;
+        if (req.params.id.startsWith('demo-')) {
+            const demoData = buildDemoResponse();
+            const idx = parseInt(req.params.id.split('-')[1]);
+            lead = demoData.leads[idx] || null;
+        } else {
+            lead = await Lead.findById(req.params.id);
+        }
+        if (!lead) return res.status(404).json({ error: 'Lead not found.' });
+
+        // Strip all non-digits, use fallback if not 10 digits
+        const rawPhone = (lead.ownerPhone || '').replace(/\D/g, '');
+        const phone = rawPhone.length === 10 ? rawPhone : '5127775555';
+
+        const payload = {
+            name: lead.ownerName,
+            address: lead.address,
+            phone,
+            source: 'Distress Filter'
+        };
+
+        console.log('[ALISHA] Sending payload:', JSON.stringify(payload));
+
+        let alishaRes;
+        try {
+            alishaRes = await fetch('http://localhost:3000/api/webhook/propwire', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+        } catch (networkErr) {
+            console.error('[ALISHA] Network error — is the Alisha server running on port 3000?', networkErr.message);
+            return res.status(502).json({
+                error: 'Could not reach Alisha server.',
+                detail: networkErr.message
+            });
+        }
+
+        const responseBody = await alishaRes.text();
+
+        if (!alishaRes.ok) {
+            console.error(
+                `[ALISHA] HTTP ${alishaRes.status} from webhook\n` +
+                `  Payload sent: ${JSON.stringify(payload)}\n` +
+                `  Response body: ${responseBody}`
+            );
+            return res.status(502).json({
+                error: `Alisha webhook returned ${alishaRes.status}`,
+                detail: responseBody
+            });
+        }
+
+        console.log(`[ALISHA] Success for lead ${lead._id} — response: ${responseBody}`);
+
+        lead.status = 'sent_to_alisha';
+        await lead.save();
+
+        let alishaData;
+        try {
+            alishaData = JSON.parse(responseBody);
+        } catch {
+            alishaData = { raw: responseBody };
+        }
+
+        res.json({ success: true, alisha: alishaData });
+    } catch (err) {
+        console.error('[ALISHA] Unexpected error:', err);
+        res.status(500).json({ error: 'Failed to send to Alisha.', detail: err.message });
+    }
+});
+
+// ==========================================
+// GET /api/leads/export — CSV download
+// ==========================================
+router.get('/export', auth, async (req, res) => {
+    try {
+        const leads = await Lead.find().sort({ motivationScore: -1 }).lean();
+
+        const fields = [
+            'address', 'city', 'state', 'zip',
+            'ownerName', 'ownerPhone',
+            'equityPercent', 'estimatedValue', 'loanBalance',
+            'isAbsenteeOwner', 'yearsOwned',
+            'isPreForeclosure', 'isTaxDelinquent',
+            'propertyType', 'motivationScore', 'motivationClass', 'status'
+        ];
+
+        const parser = new Parser({ fields });
+        const csv = parser.parse(leads);
+
+        res.setHeader('Content-Type', 'text/csv');
+        res.setHeader('Content-Disposition', 'attachment; filename="distress-filter-leads.csv"');
+        res.send(csv);
+    } catch (err) {
+        res.status(500).json({ error: 'Export failed.' });
+    }
+});
+
+// ==========================================
+// PATCH /api/leads/:id — Update status
+// ==========================================
+router.patch('/:id', auth, async (req, res) => {
+    try {
+        const lead = await Lead.findByIdAndUpdate(req.params.id, req.body, { new: true });
+        if (!lead) return res.status(404).json({ error: 'Lead not found.' });
+        res.json({ success: true, lead });
+    } catch (err) {
+        res.status(500).json({ error: 'Update failed.' });
+    }
+});
+
+// ==========================================
+// DELETE /api/leads/:id
+// ==========================================
+router.delete('/:id', auth, async (req, res) => {
+    try {
+        await Lead.findByIdAndDelete(req.params.id);
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: 'Delete failed.' });
+    }
+});
+
+module.exports = router;
