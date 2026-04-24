@@ -274,7 +274,7 @@ router.post('/:id/send-to-alisha', auth, async (req, res) => {
 
         let alishaRes;
         try {
-            alishaRes = await fetch('http://localhost:3000/api/webhook/propwire', {
+            alishaRes = await fetch('https://alisha-ai-caller-production.up.railway.app/api/webhook/propwire', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)
