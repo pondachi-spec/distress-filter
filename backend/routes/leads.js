@@ -122,7 +122,8 @@ router.post('/search', auth, async (req, res) => {
         const params = new URLSearchParams({
             postalcode: zipCode,
             pagesize: 50,
-            page: 1
+            page: 1,
+            apikey: process.env.ATTOM_API_KEY
         });
         if (propertyType) params.append('propertytype', propertyType);
 
