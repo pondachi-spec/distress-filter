@@ -166,10 +166,12 @@ router.post('/search', auth, async (req, res) => {
             'SCHOOL', 'UNIVERSITY', 'COLLEGE', 'ACADEMY',
             'UTILITY', 'UTILITIES', 'ELECTRIC', 'WATER DEPT',
             'HOUSING AUTHORITY', 'HABITAT FOR HUMANITY',
-            ' LLC', ' INC', ' CORP', ' LP ', ' LTD', ' TRUST', ' FUND',
+            ' LLC', ' INC', ' CORP', ' LP', ' LTD', ' TRUST', ' FUND',
             'INVESTMENTS', 'PROPERTIES', 'REALTY', 'REAL ESTATE', 'HOLDINGS',
             'MANAGEMENT', 'ENTERPRISES', 'PARTNERS', 'GROUP', 'ASSOCIATION',
-            'FOUNDATION', 'NONPROFIT', 'NON PROFIT', 'COMMUNITY CENTER'
+            'FOUNDATION', 'NONPROFIT', 'NON PROFIT', 'COMMUNITY CENTER',
+            'LIFE ESTATE', 'LIVING TRUST', 'REVOCABLE', 'IRREVOCABLE',
+            'ESTATE OF', 'HEIRS OF', 'C/O ', 'ATTN:'
         ];
 
         for (const feature of features) {
@@ -196,8 +198,8 @@ router.post('/search', auth, async (req, res) => {
             // Estimate remaining loan balance (assumes 30yr mortgage at purchase price)
             const lastSalePrice = a.SALE_PRC1 || 0;
 
-            // Skip properties with no sale price — equity can't be calculated reliably
-            if (lastSalePrice === 0) continue;
+            // Skip properties with no sale price or non-market transfers (tax deeds, family gifts recorded at $100 etc.)
+            if (lastSalePrice < 5000) continue;
 
             const loanBalance = Math.max(0, Math.round(lastSalePrice * Math.max(0, (30 - yearsOwned) / 30)));
 
