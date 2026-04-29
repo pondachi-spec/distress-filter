@@ -159,58 +159,44 @@ router.post('/search', auth, async (req, res) => {
 
         const leads = [];
 
-        // Keywords that indicate non-individual/institutional owners to skip
-        const NON_INDIVIDUAL_KEYWORDS = [
-            'CITY OF', 'COUNTY OF', 'STATE OF', 'UNITED STATES', 'US GOVT',
-            'CHURCH', 'MINISTRY', 'TEMPLE', 'MOSQUE', 'DIOCESE', 'FAITH',
-            'SCHOOL', 'UNIVERSITY', 'COLLEGE', 'ACADEMY',
-            'UTILITY', 'UTILITIES', 'ELECTRIC', 'WATER DEPT',
-            'HOUSING AUTHORITY', 'HABITAT FOR HUMANITY',
-            ' LLC', ' INC', ' CORP', ' LP', ' LTD', ' FUND',
-            'INVESTMENTS', 'PROPERTIES', 'REALTY', 'REAL ESTATE', 'HOLDINGS',
-            'MANAGEMENT', 'ENTERPRISES', 'PARTNERS',
-            'FOUNDATION', 'NONPROFIT', 'NON PROFIT', 'COMMUNITY CENTER',
-            'LIFE ESTATE', 'LIVING TRUST', 'REVOCABLE TRUST', 'IRREVOCABLE TRUST',
-            'ESTATE OF', 'HEIRS OF'
+        // Only skip the most obvious corporate/government entities
+        const SKIP_KEYWORDS = [
+            ' LLC', ' INC', ' CORP', ' L.P.',
+            'CITY OF', 'COUNTY OF', 'STATE OF', 'UNITED STATES',
+            'CHURCH', 'SCHOOL', 'UNIVERSITY',
+            'HABITAT FOR HUMANITY', 'HOUSING AUTHORITY',
+            'LIFE ESTATE', 'ESTATE OF'
         ];
 
         for (const feature of features) {
             const a = feature.attributes || {};
 
-            // Skip non-residential (DOR_UC 1-9 = residential; only filter if field has a value)
-            const dorUC = a.DOR_UC;
-            if (dorUC !== null && dorUC !== undefined && (dorUC < 1 || dorUC > 9)) continue;
-
             // Market value (Just Value)
             const estimatedValue = a.JV || 0;
             if (estimatedValue === 0) continue;
 
-            // Skip non-individual / institutional owners
+            // Skip obvious corporate/government owners
             const rawOwnerName = (a.OWN_NAME || '').toUpperCase();
-            if (!rawOwnerName || rawOwnerName === 'UNKNOWN') continue;
-            const isInstitutional = NON_INDIVIDUAL_KEYWORDS.some(kw => rawOwnerName.includes(kw));
-            if (isInstitutional) continue;
+            if (!rawOwnerName) continue;
+            if (SKIP_KEYWORDS.some(kw => rawOwnerName.includes(kw))) continue;
 
-            // Years owned from last sale year
+            // Years owned (default to 5 if no sale year recorded)
             const saleYear = a.SALE_YR1 || 0;
-            const yearsOwned = saleYear > 0 ? currentYear - saleYear : 0;
+            const yearsOwned = saleYear > 0 ? currentYear - saleYear : 5;
 
             // Equity calculation
             const lastSalePrice = a.SALE_PRC1 || 0;
             let loanBalance, equityPercent;
 
-            if (lastSalePrice >= 10000) {
-                // Reliable sale price — estimate remaining loan (30yr mortgage model)
+            if (lastSalePrice >= 5000) {
+                // Reliable sale price — 30yr mortgage model, cap at 95%
                 loanBalance = Math.max(0, Math.round(lastSalePrice * Math.max(0, (30 - yearsOwned) / 30)));
                 equityPercent = Math.min(95, Math.round(((estimatedValue - loanBalance) / estimatedValue) * 100));
             } else {
-                // No reliable sale price (non-market transfer, very old record, etc.)
-                // Estimate equity from years owned: ~3% per year, capped at 75%
-                equityPercent = Math.min(75, Math.max(0, yearsOwned * 3));
+                // No sale price — conservative default based on years owned
+                equityPercent = Math.min(80, 30 + yearsOwned * 2);
                 loanBalance = Math.round(estimatedValue * (1 - equityPercent / 100));
             }
-
-            if (equityPercent <= 0) continue;
 
             // Absentee owner: owner mailing zip differs from property zip
             const ownerZip = (a.OWN_ZIPCD || '').toString().substring(0, 5);
