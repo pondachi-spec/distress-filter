@@ -121,10 +121,11 @@ router.post('/search', auth, async (req, res) => {
         const currentYear = new Date().getFullYear();
 
         // ---- Florida Statewide Cadastral ArcGIS API (free, no key needed) ----
+        // DOR_UC 1-9 = residential (1=SFR, 2=Mobile Home, 3=Multi-family, 4=Condo etc.)
         const arcgisParams = new URLSearchParams({
-            where: `PHY_ZIPCD='${zipCode}'`,
+            where: `PHY_ZIPCD='${zipCode}' AND DOR_UC >= 1 AND DOR_UC <= 9`,
             outFields: 'PARCEL_ID,OWN_NAME,OWN_ADDR1,OWN_CITY,OWN_STATE,OWN_ZIPCD,PHY_ADDR1,PHY_CITY,PHY_ZIPCD,JV,SALE_PRC1,SALE_YR1,SALE_MO1,DOR_UC,NO_BULDNG',
-            resultRecordCount: 100,
+            resultRecordCount: 200,
             returnGeometry: 'false',
             f: 'json'
         });
@@ -158,6 +159,19 @@ router.post('/search', auth, async (req, res) => {
 
         const leads = [];
 
+        // Keywords that indicate non-individual/institutional owners to skip
+        const NON_INDIVIDUAL_KEYWORDS = [
+            'CITY OF', 'COUNTY OF', 'STATE OF', 'UNITED STATES', 'US GOVT',
+            'CHURCH', 'MINISTRY', 'TEMPLE', 'MOSQUE', 'DIOCESE', 'FAITH',
+            'SCHOOL', 'UNIVERSITY', 'COLLEGE', 'ACADEMY',
+            'UTILITY', 'UTILITIES', 'ELECTRIC', 'WATER DEPT',
+            'HOUSING AUTHORITY', 'HABITAT FOR HUMANITY',
+            ' LLC', ' INC', ' CORP', ' LP ', ' LTD', ' TRUST', ' FUND',
+            'INVESTMENTS', 'PROPERTIES', 'REALTY', 'REAL ESTATE', 'HOLDINGS',
+            'MANAGEMENT', 'ENTERPRISES', 'PARTNERS', 'GROUP', 'ASSOCIATION',
+            'FOUNDATION', 'NONPROFIT', 'NON PROFIT', 'COMMUNITY CENTER'
+        ];
+
         for (const feature of features) {
             const a = feature.attributes || {};
 
@@ -165,20 +179,26 @@ router.post('/search', auth, async (req, res) => {
             const estimatedValue = a.JV || 0;
             if (estimatedValue === 0) continue;
 
+            // Skip non-individual / institutional owners
+            const rawOwnerName = (a.OWN_NAME || '').toUpperCase();
+            if (!rawOwnerName || rawOwnerName === 'UNKNOWN') continue;
+            const isInstitutional = NON_INDIVIDUAL_KEYWORDS.some(kw => rawOwnerName.includes(kw));
+            if (isInstitutional) continue;
+
             // Years owned from last sale year
             const saleYear = a.SALE_YR1 || 0;
             const yearsOwned = saleYear > 0 ? currentYear - saleYear : 0;
 
             // Estimate remaining loan balance (assumes 30yr mortgage at purchase price)
             const lastSalePrice = a.SALE_PRC1 || 0;
-            const loanBalance = lastSalePrice > 0
-                ? Math.max(0, Math.round(lastSalePrice * Math.max(0, (30 - yearsOwned) / 30)))
-                : 0;
+
+            // Skip properties with no sale price — equity can't be calculated reliably
+            if (lastSalePrice === 0) continue;
+
+            const loanBalance = Math.max(0, Math.round(lastSalePrice * Math.max(0, (30 - yearsOwned) / 30)));
 
             // Equity
-            const equityPercent = estimatedValue > 0
-                ? Math.round(((estimatedValue - loanBalance) / estimatedValue) * 100)
-                : 0;
+            const equityPercent = Math.round(((estimatedValue - loanBalance) / estimatedValue) * 100);
 
             // Absentee owner: owner mailing zip differs from property zip
             const ownerZip = (a.OWN_ZIPCD || '').toString().substring(0, 5);
