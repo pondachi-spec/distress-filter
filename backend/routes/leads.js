@@ -121,11 +121,11 @@ router.post('/search', auth, async (req, res) => {
         const currentYear = new Date().getFullYear();
 
         // ---- Florida Statewide Cadastral ArcGIS API (free, no key needed) ----
-        // DOR_UC 1-9 = residential (1=SFR, 2=Mobile Home, 3=Multi-family, 4=Condo etc.)
+        // DOR_UC 1-9 = residential; filter applied in JS since ArcGIS rejects numeric WHERE comparison
         const arcgisParams = new URLSearchParams({
             where: `PHY_ZIPCD='${zipCode}'`,
-            outFields: 'PARCEL_ID,OWN_NAME,OWN_ADDR1,OWN_CITY,OWN_STATE,OWN_ZIPCD,PHY_ADDR1,PHY_CITY,PHY_ZIPCD,JV,SALE_PRC1,SALE_YR1,SALE_MO1,DOR_UC,NO_BULDNG',
-            resultRecordCount: 200,
+            outFields: '*',
+            resultRecordCount: 100,
             returnGeometry: 'false',
             f: 'json'
         });
