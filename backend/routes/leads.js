@@ -157,11 +157,16 @@ router.post('/search', auth, async (req, res) => {
             return res.json(buildDemoResponse());
         }
 
+        // Clear stale leads for this zip so recalculated equity is always fresh
+        await Lead.deleteMany({ zip: zipCode, source: 'FL-PUBLIC' });
+
         const leads = [];
 
-        // Only skip the most obvious corporate/government entities
+        // Skip corporate/government/institutional owners
         const SKIP_KEYWORDS = [
-            ' LLC', ' INC', ' CORP', ' L.P.',
+            ' LLC', ' INC', ' CORP', ' LP', ' L.P.',
+            ' LL ',  // truncated LLC (ArcGIS cuts long names)
+            'INVESTMENT', 'RENTAL', 'HOLDINGS', 'VENTURES',
             'CITY OF', 'COUNTY OF', 'STATE OF', 'UNITED STATES',
             'CHURCH', 'SCHOOL', 'UNIVERSITY',
             'HABITAT FOR HUMANITY', 'HOUSING AUTHORITY',
