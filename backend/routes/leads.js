@@ -195,16 +195,22 @@ router.post('/search', auth, async (req, res) => {
             const saleYear = a.SALE_YR1 || 0;
             const yearsOwned = saleYear > 0 ? currentYear - saleYear : 0;
 
-            // Estimate remaining loan balance (assumes 30yr mortgage at purchase price)
+            // Equity calculation
             const lastSalePrice = a.SALE_PRC1 || 0;
+            let loanBalance, equityPercent;
 
-            // Skip properties with no recorded sale price at all
-            if (lastSalePrice === 0) continue;
+            if (lastSalePrice >= 10000) {
+                // Reliable sale price — estimate remaining loan (30yr mortgage model)
+                loanBalance = Math.max(0, Math.round(lastSalePrice * Math.max(0, (30 - yearsOwned) / 30)));
+                equityPercent = Math.min(95, Math.round(((estimatedValue - loanBalance) / estimatedValue) * 100));
+            } else {
+                // No reliable sale price (non-market transfer, very old record, etc.)
+                // Estimate equity from years owned: ~3% per year, capped at 75%
+                equityPercent = Math.min(75, Math.max(0, yearsOwned * 3));
+                loanBalance = Math.round(estimatedValue * (1 - equityPercent / 100));
+            }
 
-            const loanBalance = Math.max(0, Math.round(lastSalePrice * Math.max(0, (30 - yearsOwned) / 30)));
-
-            // Equity
-            const equityPercent = Math.round(((estimatedValue - loanBalance) / estimatedValue) * 100);
+            if (equityPercent <= 0) continue;
 
             // Absentee owner: owner mailing zip differs from property zip
             const ownerZip = (a.OWN_ZIPCD || '').toString().substring(0, 5);
