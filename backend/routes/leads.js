@@ -167,7 +167,9 @@ router.post('/search', auth, async (req, res) => {
             ' LLC', ' INC', ' CORP', ' LP', ' L.P.',
             ' LL ',  // truncated LLC (ArcGIS cuts long names)
             'INVESTMENT', 'RENTAL', 'HOLDINGS', 'VENTURES',
-            'PROPERTIES GROUP', 'CAPITAL GROUP',
+            'MANAGEMENT', 'PROPERTY MGT', 'PROPERTIES GROUP',
+            'CAPITAL GROUP', 'CAPITAL LLC',
+            'ELECTRIC', 'UTILITIES', 'UTILITY',
             'TRUSTEE', 'TRUST CO',
             'CITY OF', 'COUNTY OF', 'STATE OF', 'UNITED STATES',
             'CHURCH', 'SCHOOL', 'UNIVERSITY',
