@@ -101,7 +101,7 @@ function buildDemoResponse() {
 }
 
 // ==========================================
-// POST /api/leads/search — Fetch from ATTOM + score
+// POST /api/leads/search — Fetch from Florida Public Records + score
 // ==========================================
 router.post('/search', auth, async (req, res) => {
     const {
@@ -118,87 +118,94 @@ router.post('/search', auth, async (req, res) => {
     }
 
     try {
-        // Build ATTOM query params
-        const params = new URLSearchParams({
-            postalcode: zipCode,
-            pagesize: 50,
-            page: 1,
-            apikey: process.env.ATTOM_API_KEY
-        });
-        if (propertyType) params.append('propertytype', propertyType);
+        const currentYear = new Date().getFullYear();
 
-        const attomRes = await fetch(
-            `https://api.attomdata.com/propertyapi/v1.0.0/property/basicprofile?${params.toString()}`,
-            {
-                headers: {
-                    'apikey': process.env.ATTOM_API_KEY,
-                    'accept': 'application/json'
-                }
-            }
+        // ---- Florida Statewide Cadastral ArcGIS API (free, no key needed) ----
+        const arcgisParams = new URLSearchParams({
+            where: `PHY_ZIPCD='${zipCode}'`,
+            outFields: 'PARCEL_ID,OWN_NAME,OWN_ADDR1,OWN_CITY,OWN_STATE,OWN_ZIPCD,PHY_ADDR1,PHY_CITY,PHY_ZIPCD,JV,SALE_PRC1,SALE_YR1,SALE_MO1,DOR_UC,NO_BULDNG',
+            resultRecordCount: 100,
+            returnGeometry: 'false',
+            f: 'json'
+        });
+
+        console.log(`[FL-ARCGIS] Searching zip ${zipCode}...`);
+
+        const arcgisRes = await fetch(
+            `https://services9.arcgis.com/Gh9awoU677aKree0/arcgis/rest/services/Florida_Statewide_Cadastral/FeatureServer/0/query?${arcgisParams.toString()}`,
+            { headers: { 'Accept': 'application/json' } }
         );
 
-        if (!attomRes.ok) {
-            const errText = await attomRes.text();
-            console.error('[ATTOM ERROR]', attomRes.status, errText);
-
-            if (attomRes.status === 401 || attomRes.status === 403) {
-                console.warn('[ATTOM] Auth failed — returning demo data');
-                return res.json(buildDemoResponse());
-            }
-
-            return res.status(502).json({ error: `ATTOM API error: ${attomRes.status}` });
+        if (!arcgisRes.ok) {
+            console.error('[FL-ARCGIS ERROR]', arcgisRes.status);
+            return res.json(buildDemoResponse());
         }
 
-        const attomData = await attomRes.json();
-        const properties = attomData.property || [];
+        const arcgisData = await arcgisRes.json();
+
+        if (arcgisData.error) {
+            console.error('[FL-ARCGIS ERROR]', arcgisData.error);
+            return res.json(buildDemoResponse());
+        }
+
+        const features = arcgisData.features || [];
+        console.log(`[FL-ARCGIS] Got ${features.length} properties for zip ${zipCode}`);
+
+        if (features.length === 0) {
+            console.warn('[FL-ARCGIS] No properties found — returning demo data');
+            return res.json(buildDemoResponse());
+        }
 
         const leads = [];
 
-        for (const prop of properties) {
-            const address = prop.address || {};
-            const assessment = prop.assessment || {};
-            const sale = prop.sale || {};
-            const mortgage = prop.mortgage || {};
-            const owner = prop.owner || {};
+        for (const feature of features) {
+            const a = feature.attributes || {};
 
-            // Calculate equity
-            const estimatedValue = assessment.market?.mktttlvalue || 0;
-            const loanBalance = mortgage.amount || 0;
+            // Market value (Just Value)
+            const estimatedValue = a.JV || 0;
+            if (estimatedValue === 0) continue;
+
+            // Years owned from last sale year
+            const saleYear = a.SALE_YR1 || 0;
+            const yearsOwned = saleYear > 0 ? currentYear - saleYear : 0;
+
+            // Estimate remaining loan balance (assumes 30yr mortgage at purchase price)
+            const lastSalePrice = a.SALE_PRC1 || 0;
+            const loanBalance = lastSalePrice > 0
+                ? Math.max(0, Math.round(lastSalePrice * Math.max(0, (30 - yearsOwned) / 30)))
+                : 0;
+
+            // Equity
             const equityPercent = estimatedValue > 0
                 ? Math.round(((estimatedValue - loanBalance) / estimatedValue) * 100)
                 : 0;
 
-            // Years owned
-            const saleDate = sale.saleshistory?.[0]?.saleTransDate || null;
-            let yearsOwned = 0;
-            if (saleDate) {
-                const sold = new Date(saleDate);
-                yearsOwned = Math.floor((Date.now() - sold.getTime()) / (1000 * 60 * 60 * 24 * 365));
-            }
+            // Absentee owner: owner mailing zip differs from property zip
+            const ownerZip = (a.OWN_ZIPCD || '').toString().substring(0, 5);
+            const propZip = (a.PHY_ZIPCD || zipCode).toString().substring(0, 5);
+            const isAbsenteeOwner = ownerZip.length === 5 && ownerZip !== propZip;
 
-            const isAbsenteeOwner = owner.absenteeInd === 'Y' || false;
-            const isPreForeclosure = prop.preforeclosure?.eventtype != null || false;
-            const isTaxDelinquent = prop.taxassessment?.delinquentYear != null || false;
+            // Not available in free dataset
+            const isPreForeclosure = false;
+            const isTaxDelinquent = false;
 
             // Apply filters
             if (equityPercent < minEquity) continue;
             if (absenteeOwner === true && !isAbsenteeOwner) continue;
-            if (preForeclosure === true && !isPreForeclosure) continue;
-            if (taxDelinquent === true && !isTaxDelinquent) continue;
+            if (preForeclosure === true) continue; // not available
+            if (taxDelinquent === true) continue;  // not available
 
             const { motivationScore, motivationClass } = calcMotivationScore({
                 equityPercent, isAbsenteeOwner, yearsOwned, isPreForeclosure, isTaxDelinquent
             });
 
             const leadData = {
-                address: address.oneLine || `${address.line1 || ''} ${address.line2 || ''}`.trim(),
-                city: address.locality || '',
-                state: address.countrySubd || '',
-                zip: address.postal1 || zipCode,
-                ownerName: owner.owner1?.lastNameOrCorpName
-                    ? `${owner.owner1.firstNameAndMi || ''} ${owner.owner1.lastNameOrCorpName}`.trim()
-                    : 'Unknown',
-                ownerPhone: owner.phone || null,
+                address: a.PHY_ADDR1 || '',
+                city: a.PHY_CITY || '',
+                state: 'FL',
+                zip: zipCode,
+                ownerName: a.OWN_NAME || 'Unknown',
+                ownerPhone: null,
                 equityPercent,
                 estimatedValue,
                 loanBalance,
@@ -206,11 +213,11 @@ router.post('/search', auth, async (req, res) => {
                 yearsOwned,
                 isPreForeclosure,
                 isTaxDelinquent,
-                propertyType: prop.summary?.proptype || propertyType || 'SFR',
+                propertyType: propertyType || 'SFR',
                 motivationScore,
                 motivationClass,
-                attomId: prop.identifier?.attomId || null,
-                source: 'ATTOM'
+                attomId: a.PARCEL_ID || null,
+                source: 'FL-PUBLIC'
             };
 
             // Upsert into MongoDB
@@ -222,10 +229,10 @@ router.post('/search', auth, async (req, res) => {
             leads.push(saved);
         }
 
-        // Sort by motivation score descending
         leads.sort((a, b) => b.motivationScore - a.motivationScore);
+        console.log(`[FL-ARCGIS] Returning ${leads.length} scored leads`);
+        res.json({ count: leads.length, leads, source: 'FL-PUBLIC' });
 
-        res.json({ count: leads.length, leads });
     } catch (err) {
         console.error('[SEARCH ERROR]', err);
         res.status(500).json({ error: 'Search failed.', detail: err.message });
