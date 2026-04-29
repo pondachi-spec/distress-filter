@@ -123,7 +123,7 @@ router.post('/search', auth, async (req, res) => {
         // ---- Florida Statewide Cadastral ArcGIS API (free, no key needed) ----
         // DOR_UC 1-9 = residential (1=SFR, 2=Mobile Home, 3=Multi-family, 4=Condo etc.)
         const arcgisParams = new URLSearchParams({
-            where: `PHY_ZIPCD='${zipCode}' AND DOR_UC >= 1 AND DOR_UC <= 9`,
+            where: `PHY_ZIPCD='${zipCode}'`,
             outFields: 'PARCEL_ID,OWN_NAME,OWN_ADDR1,OWN_CITY,OWN_STATE,OWN_ZIPCD,PHY_ADDR1,PHY_CITY,PHY_ZIPCD,JV,SALE_PRC1,SALE_YR1,SALE_MO1,DOR_UC,NO_BULDNG',
             resultRecordCount: 200,
             returnGeometry: 'false',
@@ -174,6 +174,10 @@ router.post('/search', auth, async (req, res) => {
 
         for (const feature of features) {
             const a = feature.attributes || {};
+
+            // Skip non-residential (DOR_UC 1-9 = residential; filter in code since ArcGIS rejects numeric WHERE)
+            const dorUC = a.DOR_UC || 0;
+            if (dorUC < 1 || dorUC > 9) continue;
 
             // Market value (Just Value)
             const estimatedValue = a.JV || 0;
