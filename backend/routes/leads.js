@@ -167,6 +167,8 @@ router.post('/search', auth, async (req, res) => {
             ' LLC', ' INC', ' CORP', ' LP', ' L.P.',
             ' LL ',  // truncated LLC (ArcGIS cuts long names)
             'INVESTMENT', 'RENTAL', 'HOLDINGS', 'VENTURES',
+            'PROPERTIES GROUP', 'CAPITAL GROUP',
+            'TRUSTEE', 'TRUST CO',
             'CITY OF', 'COUNTY OF', 'STATE OF', 'UNITED STATES',
             'CHURCH', 'SCHOOL', 'UNIVERSITY',
             'HABITAT FOR HUMANITY', 'HOUSING AUTHORITY',
@@ -198,8 +200,11 @@ router.post('/search', auth, async (req, res) => {
                 loanBalance = Math.max(0, Math.round(lastSalePrice * Math.max(0, (30 - yearsOwned) / 30)));
                 equityPercent = Math.min(95, Math.round(((estimatedValue - loanBalance) / estimatedValue) * 100));
             } else {
-                // No sale price — conservative default based on years owned
-                equityPercent = Math.min(80, 30 + yearsOwned * 2);
+                // No reliable sale price — estimate equity tier from years owned
+                if (yearsOwned >= 20)      equityPercent = 75;
+                else if (yearsOwned >= 10) equityPercent = 55;
+                else if (yearsOwned >= 5)  equityPercent = 45;
+                else                       equityPercent = 35;
                 loanBalance = Math.round(estimatedValue * (1 - equityPercent / 100));
             }
 
