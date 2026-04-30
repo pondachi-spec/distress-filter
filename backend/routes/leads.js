@@ -124,8 +124,7 @@ router.post('/search', auth, async (req, res) => {
         // DOR_UC 1-9 = residential; filter applied in JS since ArcGIS rejects numeric WHERE comparison
         const arcgisParams = new URLSearchParams({
             where: `PHY_ZIPCD='${zipCode}'`,
-            outFields: '*',
-            resultRecordCount: 100,
+            outFields: 'PARCEL_ID,OWN_NAME,OWN_ZIPCD,PHY_ADDR1,PHY_CITY,PHY_ZIPCD,JV,SALE_PRC1,SALE_YR1,DOR_UC',
             returnGeometry: 'false',
             f: 'json'
         });
