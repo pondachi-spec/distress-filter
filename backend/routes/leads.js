@@ -169,6 +169,7 @@ router.post('/search', auth, async (req, res) => {
             'MANAGEMENT', 'PROPERTY MGT', 'PROPERTIES GROUP',
             'CAPITAL GROUP', 'CAPITAL LLC',
             'ELECTRIC', 'UTILITIES', 'UTILITY',
+            'COMMUNICATION', 'SERVICES', 'SERVIC',
             'TRUSTEE', 'TRUST CO',
             'CITY OF', 'COUNTY OF', 'STATE OF', 'UNITED STATES',
             'CHURCH', 'SCHOOL', 'UNIVERSITY',
@@ -249,13 +250,12 @@ router.post('/search', auth, async (req, res) => {
                 source: 'FL-PUBLIC'
             };
 
-            // Upsert into MongoDB
-            const saved = await Lead.findOneAndUpdate(
-                { attomId: leadData.attomId || leadData.address },
-                leadData,
-                { upsert: true, new: true, setDefaultsOnInsert: true }
-            );
-            leads.push(saved);
+            leads.push(leadData);
+        }
+
+        // Bulk save to MongoDB (much faster than one-by-one upserts)
+        if (leads.length > 0) {
+            await Lead.insertMany(leads, { ordered: false }).catch(() => {});
         }
 
         leads.sort((a, b) => b.motivationScore - a.motivationScore);
