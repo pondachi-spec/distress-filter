@@ -125,6 +125,7 @@ router.post('/search', auth, async (req, res) => {
         const arcgisParams = new URLSearchParams({
             where: `PHY_ZIPCD='${zipCode}'`,
             outFields: 'PARCEL_ID,OWN_NAME,OWN_ZIPCD,PHY_ADDR1,PHY_CITY,PHY_ZIPCD,JV,SALE_PRC1,SALE_YR1,DOR_UC',
+            resultRecordCount: 500,
             returnGeometry: 'false',
             f: 'json'
         });
@@ -170,6 +171,9 @@ router.post('/search', auth, async (req, res) => {
             'CAPITAL GROUP', 'CAPITAL LLC',
             'ELECTRIC', 'UTILITIES', 'UTILITY',
             'COMMUNICATION', 'SERVICES', 'SERVIC',
+            'COMPANY', ' CO ', 'CONTRACTOR', 'CONTR',
+            'AND SON', 'AND SONS', '& SON', '& SONS',
+            'COMMUNITY', 'ASSOCIATION', 'HOMEOWNERS',
             'TRUSTEE', 'TRUST CO',
             'CITY OF', 'COUNTY OF', 'STATE OF', 'UNITED STATES',
             'CHURCH', 'SCHOOL', 'UNIVERSITY',
