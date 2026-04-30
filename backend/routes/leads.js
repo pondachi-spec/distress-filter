@@ -120,8 +120,26 @@ router.post('/search', auth, async (req, res) => {
     try {
         const currentYear = new Date().getFullYear();
 
-        // ---- Florida Statewide Cadastral ArcGIS API (free, no key needed) ----
-        // DOR_UC 1-9 = residential; filter applied in JS since ArcGIS rejects numeric WHERE comparison
+        // ── Check MongoDB cache first (avoid hammering ArcGIS) ──────────────
+        const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+        const cached = await Lead.find({
+            zip: zipCode,
+            source: 'FL-PUBLIC',
+            createdAt: { $gte: sevenDaysAgo }
+        }).sort({ motivationScore: -1 });
+
+        if (cached.length > 0) {
+            console.log(`[CACHE] Serving ${cached.length} cached leads for zip ${zipCode}`);
+            // Apply filters from request on top of cached results
+            const filtered = cached.filter(l => {
+                if (l.equityPercent < minEquity) return false;
+                if (absenteeOwner === true && !l.isAbsenteeOwner) return false;
+                return true;
+            });
+            return res.json({ count: filtered.length, leads: filtered, source: 'FL-PUBLIC' });
+        }
+
+        // ── Fetch fresh from Florida Statewide Cadastral ArcGIS ─────────────
         const arcgisParams = new URLSearchParams({
             where: `PHY_ZIPCD='${zipCode}'`,
             outFields: 'PARCEL_ID,OWN_NAME,OWN_ZIPCD,PHY_ADDR1,PHY_CITY,PHY_ZIPCD,JV,SALE_PRC1,SALE_YR1,DOR_UC',
@@ -155,9 +173,6 @@ router.post('/search', auth, async (req, res) => {
             console.warn('[FL-ARCGIS] No properties found — returning demo data');
             return res.json(buildDemoResponse());
         }
-
-        // Clear stale leads for this zip so recalculated equity is always fresh
-        await Lead.deleteMany({ zip: zipCode, source: 'FL-PUBLIC' });
 
         const leads = [];
 
