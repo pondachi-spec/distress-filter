@@ -125,7 +125,6 @@ router.post('/search', auth, async (req, res) => {
         const arcgisParams = new URLSearchParams({
             where: `PHY_ZIPCD='${zipCode}'`,
             outFields: 'PARCEL_ID,OWN_NAME,OWN_ZIPCD,PHY_ADDR1,PHY_CITY,PHY_ZIPCD,JV,SALE_PRC1,SALE_YR1,DOR_UC',
-            resultRecordCount: 500,
             returnGeometry: 'false',
             f: 'json'
         });
@@ -149,7 +148,7 @@ router.post('/search', auth, async (req, res) => {
             return res.json(buildDemoResponse());
         }
 
-        const features = arcgisData.features || [];
+        const features = (arcgisData.features || []).slice(0, 500);
         console.log(`[FL-ARCGIS] Got ${features.length} properties for zip ${zipCode}`);
 
         if (features.length === 0) {
