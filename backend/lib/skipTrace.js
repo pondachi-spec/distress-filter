@@ -5,7 +5,7 @@
  */
 const fetch = require('node-fetch');
 
-const TRACERFY_API_URL = 'https://tracerfy.com/v1/api/trace/';
+const TRACERFY_API_URL = 'https://tracerfy.com/v1/api/trace/instant/';
 
 /**
  * Skip trace a single lead by address.
@@ -20,12 +20,13 @@ async function skipTraceLead({ address, city, state = 'FL', ownerName }) {
     }
 
     try {
-        const payload = {
+        // Tracerfy instant lookup uses form-encoded body
+        const formBody = new URLSearchParams({
             address,
             city: city || 'TAMPA',
             state,
-            find_owner: true   // send address → get back owner phones/emails
-        };
+            find_owner: 'true'
+        });
 
         console.log(`[SKIPTRACE] Tracing ${address}, ${city}, ${state}...`);
 
@@ -33,15 +34,16 @@ async function skipTraceLead({ address, city, state = 'FL', ownerName }) {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${apiKey}`,
-                'Content-Type': 'application/json',
+                'Content-Type': 'application/x-www-form-urlencoded',
                 'Accept': 'application/json'
             },
-            body: JSON.stringify(payload),
+            body: formBody.toString(),
             timeout: 15000
         });
 
         if (!resp.ok) {
-            console.warn(`[SKIPTRACE] HTTP ${resp.status} from Tracerfy`);
+            const errBody = await resp.text();
+            console.warn(`[SKIPTRACE] HTTP ${resp.status} from Tracerfy:`, errBody.substring(0, 200));
             return null;
         }
 
