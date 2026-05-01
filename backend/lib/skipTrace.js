@@ -20,13 +20,12 @@ async function skipTraceLead({ address, city, state = 'FL', ownerName }) {
     }
 
     try {
-        // Tracerfy instant lookup uses form-encoded body
-        const formBody = new URLSearchParams({
+        const payload = {
             address,
             city: city || 'TAMPA',
             state,
-            find_owner: 'true'
-        });
+            find_owner: true
+        };
 
         console.log(`[SKIPTRACE] Tracing ${address}, ${city}, ${state}...`);
 
@@ -34,10 +33,10 @@ async function skipTraceLead({ address, city, state = 'FL', ownerName }) {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${apiKey}`,
-                'Content-Type': 'application/x-www-form-urlencoded',
+                'Content-Type': 'application/json',
                 'Accept': 'application/json'
             },
-            body: formBody.toString(),
+            body: JSON.stringify(payload),
             timeout: 15000
         });
 
