@@ -14,6 +14,7 @@ const leadSchema = new mongoose.Schema({
     yearsOwned: { type: Number, default: 0 },
     isPreForeclosure: { type: Boolean, default: false },
     isTaxDelinquent: { type: Boolean, default: false },
+    dorUC: Number,           // FL DOR Use Code: 1-9 = residential
     propertyType: String,
     motivationScore: { type: Number, default: 0 },
     motivationClass: { type: String, enum: ['HOT', 'WARM', 'COLD'], default: 'COLD' },

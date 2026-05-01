@@ -136,6 +136,8 @@ router.post('/search', auth, async (req, res) => {
             const filtered = cached.filter(l => {
                 if (l.equityPercent < minEquity) return false;
                 if (absenteeOwner === true && !l.isAbsenteeOwner) return false;
+                // Filter out non-residential if dorUC is stored on the lead
+                if (l.dorUC != null && (l.dorUC < 1 || l.dorUC > 9)) return false;
                 return true;
             });
             return res.json({ count: filtered.length, leads: filtered, source: 'FL-PUBLIC' });
@@ -193,13 +195,18 @@ router.post('/search', auth, async (req, res) => {
             'TRUSTEE', 'TRUST CO',
             'CITY OF', 'COUNTY OF', 'STATE OF', 'UNITED STATES', 'COUNTY',
             'AUTHORITY', 'TRANSIT', 'DISTRICT', 'DEPARTMENT',
-            'CHURCH', 'SCHOOL', 'UNIVERSITY',
+            'CHURCH', 'SCHOOL', 'UNIVERSITY', 'DIOCESE',
             'HABITAT FOR HUMANITY', 'HOUSING AUTHORITY',
             'LIFE ESTATE', 'ESTATE OF'
         ];
 
         for (const feature of features) {
             const a = feature.attributes || {};
+
+            // DOR_UC: Florida Dept of Revenue Use Codes 1-9 = residential
+            // Skip non-residential (commercial, agricultural, government, etc.)
+            const dorUC = a.DOR_UC != null ? parseInt(a.DOR_UC, 10) : null;
+            if (dorUC !== null && (dorUC < 1 || dorUC > 9)) continue;
 
             // Market value (Just Value)
             const estimatedValue = a.JV || 0;
@@ -271,6 +278,7 @@ router.post('/search', auth, async (req, res) => {
                 yearsOwned,
                 isPreForeclosure,
                 isTaxDelinquent,
+                dorUC: dorUC,
                 propertyType: propertyType || 'SFR',
                 motivationScore,
                 motivationClass,
