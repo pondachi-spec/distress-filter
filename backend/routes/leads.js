@@ -2,8 +2,10 @@ const express = require('express');
 const router = express.Router();
 const fetch = require('node-fetch');
 const Lead = require('../models/Lead');
+const ForeclosureRecord = require('../models/ForeclosureRecord');
 const auth = require('../middleware/auth');
 const { Parser } = require('json2csv');
+const { normaliseAddress } = require('./foreclosures');
 
 // ==========================================
 // Motivation Score Engine
@@ -235,14 +237,21 @@ router.post('/search', auth, async (req, res) => {
             const isAbsenteeOwner = ownerZip.length === 5 && ownerZip !== propZip;
 
             // Not available in free dataset
-            const isPreForeclosure = false;
             const isTaxDelinquent = false;
+
+            // Check foreclosure database for this address
+            const normAddr = normaliseAddress(a.PHY_ADDR1 || '');
+            const foreclosureMatch = normAddr ? await ForeclosureRecord.findOne({
+                propertyAddress: { $regex: normAddr.split(' ').slice(0, 3).join(' '), $options: 'i' },
+                zip: zipCode
+            }).lean() : null;
+            const isPreForeclosure = !!foreclosureMatch;
 
             // Apply filters
             if (equityPercent < minEquity) continue;
             if (absenteeOwner === true && !isAbsenteeOwner) continue;
-            if (preForeclosure === true) continue; // not available
-            if (taxDelinquent === true) continue;  // not available
+            if (preForeclosure === true && !isPreForeclosure) continue;
+            if (taxDelinquent === true) continue;  // not available yet
 
             const { motivationScore, motivationClass } = calcMotivationScore({
                 equityPercent, isAbsenteeOwner, yearsOwned, isPreForeclosure, isTaxDelinquent
