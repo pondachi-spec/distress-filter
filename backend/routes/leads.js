@@ -305,6 +305,18 @@ router.post('/search', auth, async (req, res) => {
 });
 
 // ==========================================
+// DELETE /api/leads/cache — Wipe cached FL-PUBLIC leads (force re-fetch)
+// ==========================================
+router.delete('/cache', auth, async (req, res) => {
+    try {
+        const result = await Lead.deleteMany({ source: 'FL-PUBLIC' });
+        res.json({ success: true, deleted: result.deletedCount });
+    } catch (err) {
+        res.status(500).json({ error: 'Cache clear failed.', detail: err.message });
+    }
+});
+
+// ==========================================
 // GET /api/leads — Return all saved leads
 // ==========================================
 router.get('/', auth, async (req, res) => {
