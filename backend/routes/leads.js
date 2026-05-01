@@ -190,6 +190,7 @@ router.post('/search', auth, async (req, res) => {
             'COMMUNITY', 'ASSOCIATION', 'HOMEOWNERS',
             'TRUSTEE', 'TRUST CO',
             'CITY OF', 'COUNTY OF', 'STATE OF', 'UNITED STATES', 'COUNTY',
+            'AUTHORITY', 'TRANSIT', 'DISTRICT', 'DEPARTMENT',
             'CHURCH', 'SCHOOL', 'UNIVERSITY',
             'HABITAT FOR HUMANITY', 'HOUSING AUTHORITY',
             'LIFE ESTATE', 'ESTATE OF'
