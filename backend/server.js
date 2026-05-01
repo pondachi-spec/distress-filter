@@ -45,17 +45,13 @@ async function syncForeclosures() {
         // Try candidate URLs (Hillsborough County Clerk bulk data)
         const now = new Date();
         const urls = [];
-        for (let mo = 0; mo <= 3; mo++) {
-            const d = new Date(now.getFullYear(), now.getMonth() - mo, 1);
+        const base = 'https://publicrec.hillsclerk.com/Civil/bulkdata';
+        for (let mo = 0; mo <= 5; mo++) {
+            const d = new Date(now.getFullYear(), now.getMonth() - mo, 4);
             const yyyy = d.getFullYear();
             const mm = String(d.getMonth() + 1).padStart(2, '0');
-            const base = 'https://publicrec.hillsclerk.com/Civil';
-            urls.push(
-                `${base}/Circuit%20Civil/MortgageForeclosure_${yyyy}-${mm}.csv`,
-                `${base}/Foreclosure/MortgageForeclosure_${yyyy}-${mm}.csv`,
-                `${base}/Circuit%20and%20County%20Civil/CircuitCivilData_${yyyy}-${mm}.csv`,
-                `${base}/CircuitCivil_${yyyy}-${mm}.csv`
-            );
+            urls.push(`${base}/Bulk%20Data%20Party%20File_%20${mm}-04-${yyyy}.csv`);
+            urls.push(`${base}/Bulk%20Data%20Party%20File_${mm}-04-${yyyy}.csv`);
         }
 
         for (const url of urls) {

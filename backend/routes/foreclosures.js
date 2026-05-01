@@ -10,25 +10,31 @@ const auth = require('../middleware/auth');
 // ============================================================
 
 // Build candidate URLs based on current + previous months
+// Hillsborough County Clerk publishes monthly bulk data files on the 4th of each month
+// Format: https://publicrec.hillsclerk.com/Civil/bulkdata/Bulk%20Data%20Party%20File_%20MM-DD-YYYY.csv
 function buildCandidateUrls() {
     const urls = [];
     const now = new Date();
+    const base = 'https://publicrec.hillsclerk.com/Civil/bulkdata';
 
-    for (let monthOffset = 0; monthOffset <= 3; monthOffset++) {
-        const d = new Date(now.getFullYear(), now.getMonth() - monthOffset, 1);
+    for (let monthOffset = 0; monthOffset <= 5; monthOffset++) {
+        const d = new Date(now.getFullYear(), now.getMonth() - monthOffset, 4);
         const yyyy = d.getFullYear();
         const mm   = String(d.getMonth() + 1).padStart(2, '0');
+        const dd   = '04';
 
-        // Known Hillsborough County Clerk bulk data URL patterns
-        const base = 'https://publicrec.hillsclerk.com/Civil';
-
-        urls.push(
-            `${base}/Circuit%20Civil/MortgageForeclosure_${yyyy}-${mm}.csv`,
-            `${base}/Foreclosure/MortgageForeclosure_${yyyy}-${mm}.csv`,
-            `${base}/Circuit%20and%20County%20Civil/CircuitCivilData_${yyyy}-${mm}.csv`,
-            `${base}/CircuitCivil_${yyyy}-${mm}.csv`,
-        );
+        // Primary format (space-encoded): "Bulk Data Party File_ MM-DD-YYYY.csv"
+        urls.push(`${base}/Bulk%20Data%20Party%20File_%20${mm}-${dd}-${yyyy}.csv`);
+        // Alternate without leading space after underscore
+        urls.push(`${base}/Bulk%20Data%20Party%20File_${mm}-${dd}-${yyyy}.csv`);
     }
+
+    // Also try daily filings directory for most recent data
+    const today = now;
+    const yy = today.getFullYear();
+    const mo = String(today.getMonth() + 1).padStart(2, '0');
+    const da = String(today.getDate()).padStart(2, '0');
+    urls.push(`https://publicrec.hillsclerk.com/Civil/dailyfilings/CivilFiling_${yy}${mo}${da}.csv`);
 
     return urls;
 }
