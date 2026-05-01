@@ -76,12 +76,13 @@ async function runSync() {
     const headers = Object.keys(rows[0]);
     console.log('[FORECLOSURE] Columns:', headers.join(', '));
 
-    // Try to auto-detect columns
-    const find = (...terms) => headers.find(h => terms.some(t => h.includes(t)));
-    const caseCol  = find('CASE NUM', 'CASE_NUM', 'CASENUMBER', 'CASE NUMBER');
-    const typeCol  = find('CASE TYPE', 'TYPE', 'CASETYPE');
-    const addrCol  = find('ADDRESS', 'ADDR', 'SITUS', 'STREET');
-    const defCol   = find('DEFENDANT', 'DEF NAME', 'PARTY NAME');
+    // Auto-detect columns — handles both standard and HC Clerk "Party File" formats
+    const find = (...terms) => headers.find(h => terms.some(t => h === t || h.includes(t)));
+    const caseCol  = find('CASENBR', 'CASE NUM', 'CASE_NUM', 'CASENUMBER', 'CASE NUMBER', 'CASE#');
+    const typeCol  = find('CASE TYPE', 'CASETYPE', 'TYPE');
+    const addrCol  = find('ADDRESS1', 'ADDRESS', 'ADDR', 'SITUS', 'STREET');
+    const defCol   = find('NAME', 'DEFENDANT', 'DEF NAME', 'PARTY NAME');
+    const partyCol = find('PARTY');   // HC Clerk Party file: P=Plaintiff, D=Defendant
     const plnCol   = find('PLAINTIFF', 'PLN');
     const zipCol   = find('ZIP');
     const cityCol  = find('CITY');
@@ -93,6 +94,14 @@ async function runSync() {
     let imported = 0, skipped = 0;
 
     for (const row of rows) {
+        // If PARTY column exists, only keep defendants (property owners being foreclosed)
+        if (partyCol) {
+            const party = (row[partyCol] || '').toUpperCase();
+            if (party && party !== 'D' && party !== 'DEF' && party !== 'DEFENDANT') {
+                skipped++; continue;
+            }
+        }
+
         const caseType = typeCol ? (row[typeCol] || '').toUpperCase() : '';
         const isMF = !typeCol || MF_TYPES.some(t => caseType.includes(t));
         if (!isMF) { skipped++; continue; }
@@ -126,6 +135,7 @@ async function runSync() {
     }
 
     if (ops.length > 0) {
+        await ForeclosureRecord.deleteMany({});  // clear stale before fresh import
         await ForeclosureRecord.bulkWrite(ops, { ordered: false }).catch(e => {
             console.warn('[FORECLOSURE] bulkWrite partial error:', e.message);
         });
