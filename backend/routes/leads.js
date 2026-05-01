@@ -159,14 +159,29 @@ router.post('/search', auth, async (req, res) => {
         );
 
         if (!arcgisRes.ok) {
-            console.error('[FL-ARCGIS ERROR]', arcgisRes.status);
+            const status = arcgisRes.status;
+            console.error('[FL-ARCGIS ERROR]', status);
+            if (status === 400 || status === 429) {
+                return res.status(429).json({
+                    error: 'rate_limited',
+                    message: 'ArcGIS is temporarily limiting requests. Please wait 3–5 minutes and try again.'
+                });
+            }
             return res.json(buildDemoResponse());
         }
 
         const arcgisData = await arcgisRes.json();
 
         if (arcgisData.error) {
-            console.error('[FL-ARCGIS ERROR]', arcgisData.error);
+            console.error('[FL-ARCGIS ERROR]', JSON.stringify(arcgisData.error));
+            // ArcGIS returns 200 with error body when rate limited
+            const msg = (arcgisData.error.message || '').toLowerCase();
+            if (msg.includes('invalid') || msg.includes('query') || arcgisData.error.code === 400) {
+                return res.status(429).json({
+                    error: 'rate_limited',
+                    message: 'ArcGIS is temporarily limiting requests. Please wait 3–5 minutes and try again.'
+                });
+            }
             return res.json(buildDemoResponse());
         }
 
