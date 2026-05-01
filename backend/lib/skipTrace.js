@@ -49,25 +49,33 @@ async function skipTraceLead({ address, city, state = 'FL', ownerName }) {
         const data = await resp.json();
         console.log('[SKIPTRACE] Raw response:', JSON.stringify(data).substring(0, 300));
 
-        // Tracerfy returns an array of people — pick the first match
-        const people = Array.isArray(data) ? data : (data.results || data.data || []);
-        if (!people || people.length === 0) {
-            console.warn('[SKIPTRACE] No results returned for', address);
+        // Tracerfy returns { hit, persons: [...] }
+        if (!data.hit) {
+            console.warn('[SKIPTRACE] No hit for', address);
+            return null;
+        }
+
+        const people = data.persons || [];
+        if (people.length === 0) {
+            console.warn('[SKIPTRACE] No persons returned for', address);
             return null;
         }
 
         const person = people[0];
+        console.log('[SKIPTRACE] Person keys:', Object.keys(person).join(', '));
 
-        // Extract phones — ranked list, prefer mobile/cell
-        const phones = (person.phones || person.phone_numbers || [])
-            .map(p => typeof p === 'string' ? p : (p.number || p.phone || ''))
+        // Extract phones — Tracerfy stores as array of objects with phone_number field
+        const rawPhones = person.phones || person.phone_numbers || person.phone || [];
+        const phones = (Array.isArray(rawPhones) ? rawPhones : [rawPhones])
+            .map(p => typeof p === 'string' ? p : (p.phone_number || p.number || p.phone || ''))
             .map(p => p.replace(/\D/g, ''))
             .filter(p => p.length === 10);
 
-        // Extract emails
-        const emails = (person.emails || person.email_addresses || [])
-            .map(e => typeof e === 'string' ? e : (e.email || e.address || ''))
-            .filter(e => e.includes('@'));
+        // Extract emails — Tracerfy stores as array of objects with email field
+        const rawEmails = person.emails || person.email_addresses || person.email || [];
+        const emails = (Array.isArray(rawEmails) ? rawEmails : [rawEmails])
+            .map(e => typeof e === 'string' ? e : (e.email_address || e.email || e.address || ''))
+            .filter(e => e && e.includes('@'));
 
         const result = {
             phone: phones[0] || null,
