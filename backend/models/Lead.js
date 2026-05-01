@@ -7,6 +7,7 @@ const leadSchema = new mongoose.Schema({
     zip: String,
     ownerName: String,
     ownerPhone: String,
+    ownerEmail: String,
     equityPercent: { type: Number, default: 0 },
     estimatedValue: Number,
     loanBalance: Number,

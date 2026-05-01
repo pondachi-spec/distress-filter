@@ -6,6 +6,7 @@ const ForeclosureRecord = require('../models/ForeclosureRecord');
 const auth = require('../middleware/auth');
 const { Parser } = require('json2csv');
 const { normaliseAddress } = require('../lib/syncForeclosures');
+const { skipTraceLead } = require('../lib/skipTrace');
 
 // ==========================================
 // Motivation Score Engine
@@ -359,9 +360,35 @@ router.post('/:id/send-to-alisha', auth, async (req, res) => {
         }
         if (!lead) return res.status(404).json({ error: 'Lead not found.' });
 
-        // Strip all non-digits, use fallback if not 10 digits
-        const rawPhone = (lead.ownerPhone || '').replace(/\D/g, '');
-        const phone = rawPhone.length === 10 ? rawPhone : '5127775555';
+        // ── Skip trace on demand if no phone yet ─────────────────────────────
+        let phone = (lead.ownerPhone || '').replace(/\D/g, '');
+        let skipped = false;
+
+        if (phone.length !== 10 && !lead.isDemo) {
+            console.log(`[ALISHA] No phone on file — skip tracing ${lead.address}...`);
+            const traced = await skipTraceLead({
+                address: lead.address,
+                city: lead.city,
+                state: lead.state || 'FL',
+                ownerName: lead.ownerName
+            });
+
+            if (traced && traced.phone) {
+                phone = traced.phone;
+                // Persist back to the lead so future clicks don't cost another $0.02
+                if (lead._id && !lead.isDemo) {
+                    await Lead.findByIdAndUpdate(lead._id, {
+                        ownerPhone: phone,
+                        ownerEmail: traced.email || lead.ownerEmail || null
+                    });
+                }
+                console.log(`[ALISHA] Skip trace found phone: ${phone}`);
+            } else {
+                skipped = true;
+                phone = '5127775555'; // fallback — no number found
+                console.warn('[ALISHA] Skip trace returned no phone — using fallback');
+            }
+        }
 
         const payload = {
             name: lead.ownerName,
