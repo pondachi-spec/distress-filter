@@ -5,7 +5,7 @@ const Lead = require('../models/Lead');
 const ForeclosureRecord = require('../models/ForeclosureRecord');
 const auth = require('../middleware/auth');
 const { Parser } = require('json2csv');
-const { normaliseAddress } = require('./foreclosures');
+const { normaliseAddress } = require('../lib/syncForeclosures');
 
 // ==========================================
 // Motivation Score Engine

@@ -1,8 +1,8 @@
 const express = require('express');
 const router = express.Router();
-const fetch = require('node-fetch');
 const ForeclosureRecord = require('../models/ForeclosureRecord');
 const auth = require('../middleware/auth');
+const { runSync, normaliseAddress, buildCandidateUrls } = require('../lib/syncForeclosures');
 
 // ============================================================
 // Hillsborough County Clerk — Civil Bulk Data CSV URLs
@@ -93,117 +93,11 @@ function detectAddressColumn(headers) {
 // POST /api/foreclosures/sync  — fetch & index Clerk CSV
 // ============================================================
 router.post('/sync', auth, async (req, res) => {
-    const urls = buildCandidateUrls();
-    let fetchedUrl = null;
-    let rawCSV = null;
-
-    console.log('[FORECLOSURE] Trying', urls.length, 'candidate URLs...');
-
-    for (const url of urls) {
-        try {
-            const resp = await fetch(url, {
-                headers: { 'Accept': 'text/csv,text/plain,*/*' },
-                timeout: 15000
-            });
-            if (resp.ok) {
-                rawCSV = await resp.text();
-                if (rawCSV.length > 100) { // sanity check — not empty
-                    fetchedUrl = url;
-                    console.log('[FORECLOSURE] ✅ Fetched from', url, '— bytes:', rawCSV.length);
-                    break;
-                }
-            }
-        } catch (e) {
-            // Try next URL
-        }
+    const result = await runSync();
+    if (!result.success) {
+        return res.status(502).json(result);
     }
-
-    if (!rawCSV) {
-        console.warn('[FORECLOSURE] ❌ No CSV found at any candidate URL');
-        return res.status(502).json({
-            error: 'Could not fetch foreclosure CSV from Hillsborough County Clerk.',
-            tried: urls,
-            hint: 'Visit https://publicrec.hillsclerk.com/Civil/ to find the correct URL and update buildCandidateUrls().'
-        });
-    }
-
-    const rows = parseCSV(rawCSV);
-    if (rows.length === 0) {
-        return res.status(500).json({ error: 'CSV parsed but contained no rows.' });
-    }
-
-    const headers = Object.keys(rows[0]);
-    console.log('[FORECLOSURE] CSV headers:', headers.join(', '));
-
-    const addrCol   = detectAddressColumn(headers);
-    const caseCol   = headers.find(h => h.includes('CASE') && h.includes('NUM'));
-    const typeCol   = headers.find(h => h.includes('TYPE'));
-    const dateCol   = headers.find(h => h.includes('DATE') || h.includes('FILED'));
-    const defCol    = headers.find(h => h.includes('DEFENDANT') || h.includes('DEF'));
-    const plnCol    = headers.find(h => h.includes('PLAINTIFF') || h.includes('PLN'));
-    const zipCol    = headers.find(h => h.includes('ZIP'));
-    const cityCol   = headers.find(h => h.includes('CITY'));
-
-    console.log('[FORECLOSURE] Detected columns — addr:', addrCol, 'case:', caseCol, 'type:', typeCol);
-
-    // Mortgage foreclosure case types in Florida: MF, MFC, MORT, FORE
-    const MF_TYPES = ['MF', 'MFC', 'MORT', 'FORE', 'MORTGAGE', 'FORECLOSURE'];
-
-    let imported = 0;
-    let skipped  = 0;
-    const ops    = [];
-
-    for (const row of rows) {
-        const caseType = typeCol ? (row[typeCol] || '').toUpperCase() : '';
-        const isMortgageFore = MF_TYPES.some(t => caseType.includes(t));
-
-        // If we can detect case type and it's not foreclosure, skip
-        if (typeCol && !isMortgageFore) { skipped++; continue; }
-
-        const rawAddr = addrCol ? row[addrCol] : '';
-        const normAddr = normaliseAddress(rawAddr);
-        if (!normAddr) { skipped++; continue; }
-
-        const caseNumber = caseCol ? row[caseCol] : `UNKNOWN-${imported}`;
-
-        ops.push({
-            updateOne: {
-                filter: { caseNumber },
-                update: {
-                    $set: {
-                        caseNumber,
-                        caseType: typeCol ? row[typeCol] : 'UNKNOWN',
-                        fileDate: dateCol ? new Date(row[dateCol]) : null,
-                        plaintiff: plnCol ? row[plnCol] : '',
-                        defendant: defCol ? row[defCol] : '',
-                        propertyAddress: normAddr,
-                        city: cityCol ? (row[cityCol] || '').toUpperCase() : '',
-                        zip: zipCol ? (row[zipCol] || '').substring(0, 5) : '',
-                        source: 'HC-CLERK'
-                    }
-                },
-                upsert: true
-            }
-        });
-        imported++;
-    }
-
-    if (ops.length > 0) {
-        await ForeclosureRecord.bulkWrite(ops, { ordered: false });
-    }
-
-    const total = await ForeclosureRecord.countDocuments();
-    console.log(`[FORECLOSURE] Imported ${imported} records, skipped ${skipped}. Total in DB: ${total}`);
-
-    res.json({
-        success: true,
-        fetchedUrl,
-        rowsInCSV: rows.length,
-        imported,
-        skipped,
-        totalInDB: total,
-        detectedColumns: { addrCol, caseCol, typeCol, dateCol, defCol }
-    });
+    res.json(result);
 });
 
 // ============================================================
