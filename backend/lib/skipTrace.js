@@ -5,7 +5,7 @@
  */
 const fetch = require('node-fetch');
 
-const TRACERFY_API_URL = 'https://tracerfy.com/v1/api/trace/instant/';
+const TRACERFY_API_URL = 'https://tracerfy.com/v1/api/trace/lookup/';
 
 /**
  * Skip trace a single lead by address.
