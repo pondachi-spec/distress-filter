@@ -207,7 +207,8 @@ router.post('/search', auth, async (req, res) => {
             'COMMUNICATION', 'SERVICES', 'SERVIC',
             'COMPANY', ' CO ', 'CONTRACTOR', 'CONTR',
             'AND SON', 'AND SONS', '& SON', '& SONS',
-            'COMMUNITY', 'ASSOCIATION', 'HOMEOWNERS',
+            'COMMUNITY', 'ASSOCIATION', 'HOMEOWNERS', 'HOMEO',
+            'RESERVE OF', 'VILLAGES OF', 'PRESERVE AT',
             'TRUSTEE', 'TRUST CO',
             'CITY OF', 'COUNTY OF', 'STATE OF', 'UNITED STATES', 'COUNTY',
             'AUTHORITY', 'TRANSIT', 'DISTRICT', 'DEPARTMENT',
@@ -225,6 +226,9 @@ router.post('/search', auth, async (req, res) => {
             // Skip non-residential (commercial, agricultural, government, etc.)
             const dorUC = a.DOR_UC != null ? parseInt(a.DOR_UC, 10) : null;
             if (dorUC !== null && (dorUC < 1 || dorUC > 9)) continue;
+
+            // Must have a physical address
+            if (!a.PHY_ADDR1 || !a.PHY_ADDR1.trim()) continue;
 
             // Market value (Just Value)
             const estimatedValue = a.JV || 0;
