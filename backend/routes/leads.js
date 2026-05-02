@@ -213,7 +213,9 @@ router.post('/search', auth, async (req, res) => {
             'AUTHORITY', 'TRANSIT', 'DISTRICT', 'DEPARTMENT',
             'CHURCH', 'SCHOOL', 'UNIVERSITY', 'DIOCESE',
             'HABITAT FOR HUMANITY', 'HOUSING AUTHORITY',
-            'LIFE ESTATE', 'ESTATE OF'
+            'LIFE ESTATE', 'ESTATE OF',
+            'LAND TRUST', ' TRUST',
+            'APARTMENT', 'APARTMEN', 'GARDEN APT', 'MOBILE HOME'
         ];
 
         for (const feature of features) {
