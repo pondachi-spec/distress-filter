@@ -36,6 +36,18 @@ export default function LeadTable({ leads, onRefresh }) {
         }
     }
 
+    function openARVCalculator(lead) {
+        const params = new URLSearchParams({
+            address: `${lead.address}, ${lead.city}, ${lead.state} ${lead.zip}`,
+            zip: lead.zip || '',
+            sqft: '1450',  // default — user can adjust
+            yearBuilt: '1990',
+            beds: '3',
+            baths: '2',
+        })
+        window.open(`https://arv-calculator-production.up.railway.app?${params.toString()}`, '_blank')
+    }
+
     async function deleteLead(id) {
         if (!window.confirm('Delete this lead?')) return
         try {
@@ -118,6 +130,13 @@ export default function LeadTable({ leads, onRefresh }) {
                                                 className="bg-blue-600/20 hover:bg-blue-600/40 border border-blue-500/30 text-blue-400 text-xs px-2.5 py-1 rounded-lg transition-all disabled:opacity-40 disabled:cursor-not-allowed"
                                             >
                                                 {sending[lead._id] ? '...' : '📞 Alisha'}
+                                            </button>
+                                            <button
+                                                onClick={() => openARVCalculator(lead)}
+                                                title="Calculate ARV"
+                                                className="bg-purple-600/20 hover:bg-purple-600/40 border border-purple-500/30 text-purple-400 text-xs px-2.5 py-1 rounded-lg transition-all"
+                                            >
+                                                🏠 ARV
                                             </button>
                                             <button
                                                 onClick={() => deleteLead(lead._id)}
