@@ -125,7 +125,7 @@ export default function App() {
             <div className="max-w-screen-xl mx-auto px-6 py-6 flex gap-6">
                 {/* Left: Search Panel */}
                 <aside className="w-72 flex-shrink-0">
-                    <SearchPanel onSearch={handleSearch} loading={loading} />
+                    <SearchPanel onSearch={handleSearch} loading={loading} onCacheCleared={() => setLeads([])} />
 
                     {/* Score Legend */}
                     <div className="glass p-4 mt-4 text-xs space-y-2">

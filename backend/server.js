@@ -21,6 +21,26 @@ app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', server: 'Distress Filter', port: PORT });
 });
 
+// ── Browser-friendly cache clear (before static files so it's never intercepted) ──
+app.get('/clear-cache', async (req, res) => {
+    if (req.query.key !== 'distress2024') {
+        return res.status(403).send('Invalid key');
+    }
+    try {
+        const Lead = require('./models/Lead');
+        const result = await Lead.deleteMany({ source: 'FL-PUBLIC' });
+        res.send(`<html><head><meta charset="utf-8"></head><body style="font-family:sans-serif;background:#0f0f1a;color:#e2e8f0;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;flex-direction:column;gap:16px">
+            <div style="font-size:56px">✅</div>
+            <h2 style="color:#a78bfa;margin:0">Cache Cleared!</h2>
+            <p style="color:#94a3b8;margin:0">Deleted <strong style="color:#fff">${result.deletedCount}</strong> cached leads.</p>
+            <p style="color:#64748b;font-size:14px">Go back and run a fresh search.</p>
+            <a href="/" style="margin-top:8px;padding:10px 28px;background:#7c3aed;color:#fff;text-decoration:none;border-radius:8px;font-weight:600">← Back to App</a>
+        </body></html>`);
+    } catch (err) {
+        res.status(500).send('Error: ' + err.message);
+    }
+});
+
 // Serve built frontend
 app.use(express.static(path.join(__dirname, '../frontend/dist')));
 app.get('*', (req, res) => {

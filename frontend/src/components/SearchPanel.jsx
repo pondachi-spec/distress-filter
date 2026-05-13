@@ -1,4 +1,6 @@
 import React, { useState } from 'react'
+import api from '../api'
+import toast from 'react-hot-toast'
 
 const PROPERTY_TYPES = [
     { value: '', label: 'All Types' },
@@ -9,7 +11,7 @@ const PROPERTY_TYPES = [
     { value: 'MOBILE', label: 'Mobile Home' },
 ]
 
-export default function SearchPanel({ onSearch, loading }) {
+export default function SearchPanel({ onSearch, onCacheCleared, loading }) {
     const [form, setForm] = useState({
         zipCode: '',
         propertyType: '',
@@ -23,9 +25,25 @@ export default function SearchPanel({ onSearch, loading }) {
         setForm(prev => ({ ...prev, [field]: value }))
     }
 
+    const [clearing, setClearing] = useState(false)
+
     function handleSubmit(e) {
         e.preventDefault()
         onSearch(form)
+    }
+
+    async function handleClearCache() {
+        if (!window.confirm('Clear all cached leads? The next search will pull fresh data from ArcGIS.')) return
+        setClearing(true)
+        try {
+            const res = await api.delete('/leads/cache')
+            toast.success(`Cache cleared — ${res.data.deleted} leads removed. Run a fresh search!`)
+            if (onCacheCleared) onCacheCleared()
+        } catch {
+            toast.error('Failed to clear cache.')
+        } finally {
+            setClearing(false)
+        }
     }
 
     return (
@@ -113,9 +131,18 @@ export default function SearchPanel({ onSearch, loading }) {
                                 <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" className="opacity-25"/>
                                 <path d="M4 12a8 8 0 018-8v8" stroke="currentColor" strokeWidth="4" className="opacity-75"/>
                             </svg>
-                            Searching ATTOM...
+                            Searching...
                         </span>
                     ) : '🔍 Run Distress Filter'}
+                </button>
+
+                <button
+                    type="button"
+                    onClick={handleClearCache}
+                    disabled={clearing || loading}
+                    className="w-full bg-white/5 hover:bg-red-500/15 border border-white/10 hover:border-red-500/30 disabled:opacity-40 disabled:cursor-not-allowed text-slate-400 hover:text-red-400 text-xs py-2 rounded-lg transition-all mt-1"
+                >
+                    {clearing ? '⏳ Clearing...' : '🗑 Clear Cache & Refresh Data'}
                 </button>
             </form>
         </div>

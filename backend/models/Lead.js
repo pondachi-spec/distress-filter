@@ -22,6 +22,10 @@ const leadSchema = new mongoose.Schema({
     status: { type: String, enum: ['new', 'sent_to_alisha', 'calling', 'qualified', 'abandoned'], default: 'new' },
     attomId: String,
     source: { type: String, default: 'ATTOM' },
+    sqft: Number,
+    beds: Number,
+    baths: Number,
+    yearBuilt: Number,
     createdAt: { type: Date, default: Date.now }
 });
 

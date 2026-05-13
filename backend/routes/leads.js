@@ -123,31 +123,14 @@ router.post('/search', auth, async (req, res) => {
     try {
         const currentYear = new Date().getFullYear();
 
-        // ── Check MongoDB cache first (avoid hammering ArcGIS) ──────────────
-        const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-        const cached = await Lead.find({
-            zip: zipCode,
-            source: 'FL-PUBLIC',
-            createdAt: { $gte: sevenDaysAgo }
-        }).sort({ motivationScore: -1 });
-
-        if (cached.length > 0) {
-            console.log(`[CACHE] Serving ${cached.length} cached leads for zip ${zipCode}`);
-            // Apply filters from request on top of cached results
-            const filtered = cached.filter(l => {
-                if (l.equityPercent < minEquity) return false;
-                if (absenteeOwner === true && !l.isAbsenteeOwner) return false;
-                // Filter out non-residential if dorUC is stored on the lead
-                if (l.dorUC != null && (l.dorUC < 1 || l.dorUC > 9)) return false;
-                return true;
-            });
-            return res.json({ count: filtered.length, leads: filtered, source: 'FL-PUBLIC' });
-        }
+        // Cache disabled temporarily — always fetch fresh from ArcGIS
+        // (re-enable after confirming new fields work)
+        console.log(`[CACHE] Skipping cache — fetching fresh from ArcGIS for zip ${zipCode}`);
 
         // ── Fetch fresh from Florida Statewide Cadastral ArcGIS ─────────────
         const arcgisParams = new URLSearchParams({
             where: `PHY_ZIPCD='${zipCode}'`,
-            outFields: 'PARCEL_ID,OWN_NAME,OWN_ZIPCD,PHY_ADDR1,PHY_CITY,PHY_ZIPCD,JV,SALE_PRC1,SALE_YR1,DOR_UC',
+            outFields: '*',
             returnGeometry: 'false',
             f: 'json'
         });
@@ -189,18 +172,30 @@ router.post('/search', auth, async (req, res) => {
         const features = (arcgisData.features || []).slice(0, 500);
         console.log(`[FL-ARCGIS] Got ${features.length} properties for zip ${zipCode}`);
 
+        // Debug: log ALL field names and values for sqft/bed/bath/year candidates
+        if (features.length > 0) {
+            const s = features[0].attributes || {};
+            console.log(`[FL-ARCGIS DEBUG] All fields: ${Object.keys(s).join(', ')}`);
+            console.log(`[FL-ARCGIS DEBUG] sqft candidates: TOT_LVG_AR=${s.TOT_LVG_AR} LVG_AREA=${s.LVG_AREA} LIVING_SQ_FT=${s.LIVING_SQ_FT} LIVING_AREA=${s.LIVING_AREA} SQ_FT=${s.SQ_FT} SQFT=${s.SQFT}`);
+            console.log(`[FL-ARCGIS DEBUG] bed candidates: NO_BEDRM=${s.NO_BEDRM} BEDRM=${s.BEDRM} BEDROOMS=${s.BEDROOMS} NUM_BEDRM=${s.NUM_BEDRM} BED=${s.BED}`);
+            console.log(`[FL-ARCGIS DEBUG] bath candidates: NO_BATH=${s.NO_BATH} BATHROOMS=${s.BATHROOMS} NUM_BATH=${s.NUM_BATH} BATH=${s.BATH}`);
+            console.log(`[FL-ARCGIS DEBUG] year candidates: ACT_YR_BLT=${s.ACT_YR_BLT} YR_BLT=${s.YR_BLT} YEAR_BLT=${s.YEAR_BLT} YEAR_BUILT=${s.YEAR_BUILT} EFF_YR_BLT=${s.EFF_YR_BLT}`);
+        }
+
         if (features.length === 0) {
             console.warn('[FL-ARCGIS] No properties found — returning demo data');
             return res.json(buildDemoResponse());
         }
 
         const leads = [];
+        const seenAddresses = new Set(); // deduplicate by address within this batch
 
         // Skip corporate/government/institutional owners
         const SKIP_KEYWORDS = [
             ' LLC', ' INC', ' CORP', ' LP', ' L.P.',
-            ' LL ',  // truncated LLC (ArcGIS cuts long names)
-            'INVESTMENT', 'RENTAL', 'HOLDINGS', 'VENTURES',
+            ' LL ',  // truncated LLC mid-name
+            ' LL',   // truncated LLC at end of name (ArcGIS 30-char cutoff)
+            'INVESTMENT', 'RENTAL', 'HOLDINGS', 'VENTURES', 'FUND', 'CAPITAL',
             'MANAGEMENT', 'PROPERTY MGT', 'PROPERTIES GROUP',
             'CAPITAL GROUP', 'CAPITAL LLC',
             'ELECTRIC', 'UTILITIES', 'UTILITY',
@@ -209,14 +204,16 @@ router.post('/search', auth, async (req, res) => {
             'AND SON', 'AND SONS', '& SON', '& SONS',
             'COMMUNITY', 'ASSOCIATION', 'HOMEOWNERS', 'HOMEO',
             'RESERVE OF', 'VILLAGES OF', 'PRESERVE AT',
+            'TOWNHOME', 'TOWNHOUSE', 'CONDO', 'CONDOMINIUM',
             'TRUSTEE', 'TRUST CO',
             'CITY OF', 'COUNTY OF', 'STATE OF', 'UNITED STATES', 'COUNTY',
             'AUTHORITY', 'TRANSIT', 'DISTRICT', 'DEPARTMENT',
             'CHURCH', 'SCHOOL', 'UNIVERSITY', 'DIOCESE',
             'HABITAT FOR HUMANITY', 'HOUSING AUTHORITY',
-            'LIFE ESTATE', 'ESTATE OF',
+            'LIFE ESTATE', 'LIFE ES', 'ESTATE OF',
             'LAND TRUST', ' TRUST',
-            'APARTMENT', 'APARTMEN', 'GARDEN APT', 'MOBILE HOME'
+            'APARTMENT', 'APARTMEN', 'GARDEN APT', 'MOBILE HOME',
+            'HOM ', 'HOM$', // truncated HOMEOWNERS / HOMES (ArcGIS 30-char limit)
         ];
 
         for (const feature of features) {
@@ -230,9 +227,9 @@ router.post('/search', auth, async (req, res) => {
             // Must have a physical address
             if (!a.PHY_ADDR1 || !a.PHY_ADDR1.trim()) continue;
 
-            // Market value (Just Value)
+            // Market value (Just Value) — skip anything under $30k (bad data / non-residential remnants)
             const estimatedValue = a.JV || 0;
-            if (estimatedValue === 0) continue;
+            if (estimatedValue < 30000) continue;
 
             // Skip obvious corporate/government owners
             const rawOwnerName = (a.OWN_NAME || '').toUpperCase();
@@ -286,6 +283,22 @@ router.post('/search', auth, async (req, res) => {
                 equityPercent, isAbsenteeOwner, yearsOwned, isPreForeclosure, isTaxDelinquent
             });
 
+            // Try all known FDOR NAL field name variants (ArcGIS layer may differ by export)
+            const rawSqft = a.TOT_LVG_AR ?? a.LIVING_SQ_FT ?? a.LVG_AREA ?? a.LIVING_AREA ?? a.SQ_FT ?? a.SQFT ?? 0;
+            const rawBeds = a.NO_BEDRM ?? a.BEDRM ?? a.BEDROOMS ?? a.NUM_BEDRM ?? a.BED ?? 0;
+            const rawBaths = a.NO_BATH ?? a.BATHROOMS ?? a.NUM_BATH ?? a.BATH ?? 0;
+            const rawYear = a.ACT_YR_BLT ?? a.YR_BLT ?? a.YEAR_BLT ?? a.YEAR_BUILT ?? a.EFF_YR_BLT ?? 0;
+
+            const sqft = rawSqft > 0 ? Math.round(rawSqft) : null;
+            const beds = rawBeds > 0 ? Math.round(rawBeds) : null;
+            const baths = rawBaths > 0 ? Math.round(rawBaths * 2) / 2 : null;
+            const yearBuilt = rawYear > 1800 ? Math.round(rawYear) : null;
+
+            // Deduplicate: skip if we already have this address in this batch
+            const addrKey = (a.PHY_ADDR1 || '').trim().toUpperCase();
+            if (seenAddresses.has(addrKey)) continue;
+            seenAddresses.add(addrKey);
+
             const leadData = {
                 address: a.PHY_ADDR1 || '',
                 city: a.PHY_CITY || '',
@@ -305,15 +318,26 @@ router.post('/search', auth, async (req, res) => {
                 motivationScore,
                 motivationClass,
                 attomId: a.PARCEL_ID || null,
-                source: 'FL-PUBLIC'
+                source: 'FL-PUBLIC',
+                sqft,
+                beds,
+                baths,
+                yearBuilt,
             };
 
             leads.push(leadData);
         }
 
-        // Bulk save to MongoDB (much faster than one-by-one upserts)
+        // Upsert by address+zip to prevent duplicates across repeated searches
         if (leads.length > 0) {
-            await Lead.insertMany(leads, { ordered: false }).catch(() => {});
+            const ops = leads.map(l => ({
+                updateOne: {
+                    filter: { address: l.address, zip: l.zip, source: 'FL-PUBLIC' },
+                    update: { $set: l },
+                    upsert: true,
+                }
+            }));
+            await Lead.bulkWrite(ops, { ordered: false }).catch(() => {});
         }
 
         leads.sort((a, b) => b.motivationScore - a.motivationScore);
@@ -335,6 +359,59 @@ router.delete('/cache', auth, async (req, res) => {
         res.json({ success: true, deleted: result.deletedCount });
     } catch (err) {
         res.status(500).json({ error: 'Cache clear failed.', detail: err.message });
+    }
+});
+
+// ==========================================
+// GET /api/leads/debug-fields?zip=33612 — Show raw ArcGIS field names in browser
+// ==========================================
+router.get('/debug-fields', async (req, res) => {
+    const zip = req.query.zip || '33612';
+    try {
+        const params = new URLSearchParams({
+            where: `PHY_ZIPCD='${zip}'`,
+            outFields: '*',
+            returnGeometry: 'false',
+            resultRecordCount: '1',
+            f: 'json'
+        });
+        const r = await fetch(
+            `https://services9.arcgis.com/Gh9awoU677aKree0/arcgis/rest/services/Florida_Statewide_Cadastral/FeatureServer/0/query?${params.toString()}`,
+            { headers: { 'Accept': 'application/json' } }
+        );
+        const data = await r.json();
+        if (data.error) return res.json({ error: data.error });
+        const attrs = (data.features?.[0]?.attributes) || {};
+        const rows = Object.entries(attrs).map(([k, v]) => `<tr><td style="padding:4px 12px;border-bottom:1px solid #2d2d4e;font-family:monospace;color:#a78bfa">${k}</td><td style="padding:4px 12px;border-bottom:1px solid #2d2d4e;color:#e2e8f0">${v ?? '<span style="color:#64748b">null</span>'}</td></tr>`).join('');
+        res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>ArcGIS Fields</title></head><body style="background:#0f0f1a;color:#e2e8f0;font-family:sans-serif;padding:32px">
+            <h2 style="color:#a78bfa">ArcGIS Field Names — Zip ${zip}</h2>
+            <p style="color:#94a3b8">First property returned. Look for beds, baths, sqft, year built.</p>
+            <table style="border-collapse:collapse;min-width:500px"><tr><th style="text-align:left;padding:6px 12px;color:#64748b;font-size:12px">FIELD NAME</th><th style="text-align:left;padding:6px 12px;color:#64748b;font-size:12px">VALUE</th></tr>${rows}</table>
+        </body></html>`);
+    } catch (err) {
+        res.status(500).send('Error: ' + err.message);
+    }
+});
+
+// ==========================================
+// GET /api/leads/clear-cache?key=SECRET — Browser-friendly cache clear (no frontend needed)
+// ==========================================
+router.get('/clear-cache', async (req, res) => {
+    const secret = process.env.CACHE_CLEAR_KEY || 'distress2024';
+    if (req.query.key !== secret) {
+        return res.status(403).send('<html><body style="font-family:sans-serif;padding:40px;background:#0f0f1a;color:#ef4444"><h2>❌ Invalid key</h2></body></html>');
+    }
+    try {
+        const result = await Lead.deleteMany({ source: 'FL-PUBLIC' });
+        res.send(`<!DOCTYPE html><html><body style="font-family:sans-serif;padding:40px;background:#0f0f1a;color:#e2e8f0;text-align:center;margin-top:80px">
+            <div style="font-size:48px;margin-bottom:16px">✅</div>
+            <h2 style="color:#a78bfa;margin:0 0 12px">Cache Cleared!</h2>
+            <p style="color:#94a3b8">Deleted <strong style="color:#fff">${result.deletedCount}</strong> cached leads.</p>
+            <p style="color:#94a3b8">Go back to the app and run a fresh search to pull new data from ArcGIS.</p>
+            <a href="/" style="display:inline-block;margin-top:24px;padding:10px 24px;background:#7c3aed;color:#fff;text-decoration:none;border-radius:8px;font-weight:600">← Back to App</a>
+        </body></html>`);
+    } catch (err) {
+        res.status(500).send('Error: ' + err.message);
     }
 });
 
