@@ -1,6 +1,6 @@
 FROM node:18-alpine
-# Cache bust: 20260510-v1
-ARG CACHE_BUST=20260510-v1
+# Cache bust: 20260513-v2
+ARG CACHE_BUST=20260513-v2
 WORKDIR /app
 
 # ── Backend dependencies ──────────────────────────────────────
