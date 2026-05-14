@@ -19,8 +19,11 @@ const STATUS_LABELS = {
     abandoned: 'Abandoned',
 }
 
+const CASH_BUYER_URL = 'https://cash-buyer-matcher-production.up.railway.app'
+
 export default function LeadTable({ leads, onRefresh }) {
     const [sending, setSending] = useState({})
+    const [matching, setMatching] = useState({})
     const [expandedId, setExpandedId] = useState(null)
 
     async function sendToAlisha(lead) {
@@ -30,7 +33,11 @@ export default function LeadTable({ leads, onRefresh }) {
             toast.success(`${lead.ownerName} sent to Alisha!`)
             onRefresh()
         } catch (err) {
-            toast.error(err.response?.data?.error || 'Failed to send to Alisha.')
+            if (err.response?.status === 429 || err.response?.data?.error === 'rate_limited') {
+                toast.error('⏳ ArcGIS rate limit hit — wait 3–5 minutes then try again.', { duration: 8000 })
+            } else {
+                toast.error(err.response?.data?.error || 'Failed to send to Alisha.')
+            }
         } finally {
             setSending(prev => ({ ...prev, [lead._id]: false }))
         }
@@ -40,12 +47,46 @@ export default function LeadTable({ leads, onRefresh }) {
         const params = new URLSearchParams({
             address: `${lead.address}, ${lead.city}, ${lead.state} ${lead.zip}`,
             zip: lead.zip || '',
-            sqft: '1450',  // default — user can adjust
-            yearBuilt: '1990',
-            beds: '3',
-            baths: '2',
+            sqft: lead.sqft || '1450',
+            yearBuilt: lead.yearBuilt || '1990',
+            beds: lead.beds || '3',
+            baths: lead.baths || '2',
         })
         window.open(`https://arv-calculator-production.up.railway.app?${params.toString()}`, '_blank')
+    }
+
+    async function pushToBuyerMatcher(lead) {
+        setMatching(prev => ({ ...prev, [lead._id]: true }))
+        try {
+            const payload = {
+                address: lead.address,
+                city: lead.city,
+                state: lead.state || 'FL',
+                zip: lead.zip,
+                beds: 3,
+                baths: 2,
+                sqft: 1450,
+                askingPrice: lead.estimatedValue ? Math.round(lead.estimatedValue * 0.7) : null,
+                arv: lead.estimatedValue || null,
+                condition: 'Fair',
+                propertyType: 'SFR',
+                source: 'alisha',
+                sourceId: lead._id,
+                notes: `Lead from Distress Filter. Owner: ${lead.ownerName}. Motivation score: ${lead.motivationScore}. Equity: ${lead.equityPercent}%.`,
+            }
+            const resp = await fetch(`${CASH_BUYER_URL}/api/deals`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            })
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
+            toast.success('💰 Deal pushed to Cash Buyer Matcher!')
+            window.open(CASH_BUYER_URL, '_blank')
+        } catch (err) {
+            toast.error('Failed to push to Buyer Matcher: ' + err.message)
+        } finally {
+            setMatching(prev => ({ ...prev, [lead._id]: false }))
+        }
     }
 
     async function deleteLead(id) {
@@ -139,6 +180,14 @@ export default function LeadTable({ leads, onRefresh }) {
                                                 🏠 ARV
                                             </button>
                                             <button
+                                                onClick={() => pushToBuyerMatcher(lead)}
+                                                disabled={matching[lead._id]}
+                                                title="Push deal to Cash Buyer Matcher"
+                                                className="bg-emerald-600/20 hover:bg-emerald-600/40 border border-emerald-500/30 text-emerald-400 text-xs px-2.5 py-1 rounded-lg transition-all disabled:opacity-40"
+                                            >
+                                                {matching[lead._id] ? '...' : '💰 Match'}
+                                            </button>
+                                            <button
                                                 onClick={() => deleteLead(lead._id)}
                                                 title="Delete lead"
                                                 className="bg-red-600/10 hover:bg-red-600/30 border border-red-500/20 text-red-400 text-xs px-2 py-1 rounded-lg transition-all"
@@ -170,6 +219,24 @@ export default function LeadTable({ leads, onRefresh }) {
                                                     <span className="text-slate-500 block">Property Type</span>
                                                     <span className="text-white font-medium">{lead.propertyType || 'N/A'}</span>
                                                 </div>
+                                                {lead.sqft && (
+                                                    <div>
+                                                        <span className="text-slate-500 block">Sqft</span>
+                                                        <span className="text-white font-medium">{lead.sqft.toLocaleString()} sqft</span>
+                                                    </div>
+                                                )}
+                                                {(lead.beds || lead.baths) && (
+                                                    <div>
+                                                        <span className="text-slate-500 block">Beds / Baths</span>
+                                                        <span className="text-white font-medium">{lead.beds || '?'} bd / {lead.baths || '?'} ba</span>
+                                                    </div>
+                                                )}
+                                                {lead.yearBuilt && (
+                                                    <div>
+                                                        <span className="text-slate-500 block">Year Built</span>
+                                                        <span className="text-white font-medium">{lead.yearBuilt}</span>
+                                                    </div>
+                                                )}
                                                 {lead.ownerPhone && (
                                                     <div>
                                                         <span className="text-slate-500 block">Phone</span>
