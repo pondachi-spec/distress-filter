@@ -1,7 +1,9 @@
 FROM node:18-alpine
-# Cache bust: 20260513-v2
-ARG CACHE_BUST=20260513-v2
+# Cache bust: 20260515-v1
+ARG CACHE_BUST=20260515-v1
 WORKDIR /app
+# Force cache invalidation — changing CACHE_BUST value breaks all subsequent layers
+RUN echo "Build: ${CACHE_BUST}"
 
 # ── Backend dependencies ──────────────────────────────────────
 COPY backend/package*.json ./backend/

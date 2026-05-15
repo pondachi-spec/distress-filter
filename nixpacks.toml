@@ -1,4 +1,1 @@
-providers = ["node"]
-
-[phases.setup]
-nixPkgs = ["nodejs_18"]
+# Intentionally empty — Railway will use Dockerfile instead
