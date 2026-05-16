@@ -1,6 +1,6 @@
-FROM node:18-alpine3.20
-# Cache bust: 20260515-v4
-ARG CACHE_BUST=20260515-v4
+FROM node:20-alpine
+# Cache bust: 20260516-node20
+ARG CACHE_BUST=20260516-node20
 WORKDIR /app
 # Force cache invalidation — changing CACHE_BUST value breaks all subsequent layers
 RUN echo "Build: ${CACHE_BUST}"
