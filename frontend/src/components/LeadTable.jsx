@@ -20,10 +20,12 @@ const STATUS_LABELS = {
 }
 
 const CASH_BUYER_URL = 'https://cash-buyer-matcher-production.up.railway.app'
+const SHAANI_URL = 'https://shaani-dashboard-production.up.railway.app'
 
 export default function LeadTable({ leads, onRefresh }) {
     const [sending, setSending] = useState({})
     const [matching, setMatching] = useState({})
+    const [shaaniLoading, setShaaniLoading] = useState({})
     const [expandedId, setExpandedId] = useState(null)
 
     async function sendToAlisha(lead) {
@@ -53,6 +55,33 @@ export default function LeadTable({ leads, onRefresh }) {
             baths: lead.baths || '2',
         })
         window.open(`https://arv-calculator-production.up.railway.app?${params.toString()}`, '_blank')
+    }
+
+    async function pushToShaani(lead) {
+        setShaaniLoading(prev => ({ ...prev, [lead._id]: true }))
+        try {
+            const payload = {
+                address: `${lead.address}, ${lead.city || 'Tampa'}, ${lead.state || 'FL'} ${lead.zip || ''}`.trim(),
+                ownerName: lead.ownerName || '',
+                phone: lead.ownerPhone || '',
+                askingPrice: lead.estimatedValue ? Math.round(lead.estimatedValue * 0.7) : 0,
+                arv: lead.estimatedValue || 0,
+                repairCost: 15000,
+                wholesaleFee: 10000,
+            }
+            const resp = await fetch(`${SHAANI_URL}/api/deals`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            })
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
+            toast.success('🧠 Deal pushed to Shaani!')
+            window.open(SHAANI_URL, '_blank')
+        } catch (err) {
+            toast.error('Failed to push to Shaani: ' + err.message)
+        } finally {
+            setShaaniLoading(prev => ({ ...prev, [lead._id]: false }))
+        }
     }
 
     async function pushToBuyerMatcher(lead) {
@@ -171,6 +200,14 @@ export default function LeadTable({ leads, onRefresh }) {
                                                 className="bg-blue-600/20 hover:bg-blue-600/40 border border-blue-500/30 text-blue-400 text-xs px-2.5 py-1 rounded-lg transition-all disabled:opacity-40 disabled:cursor-not-allowed"
                                             >
                                                 {sending[lead._id] ? '...' : '📞 Alisha'}
+                                            </button>
+                                            <button
+                                                onClick={() => pushToShaani(lead)}
+                                                disabled={shaaniLoading[lead._id]}
+                                                title="Push deal to Shaani"
+                                                className="bg-violet-600/20 hover:bg-violet-600/40 border border-violet-500/30 text-violet-400 text-xs px-2.5 py-1 rounded-lg transition-all disabled:opacity-40"
+                                            >
+                                                {shaaniLoading[lead._id] ? '...' : '🧠 Shaani'}
                                             </button>
                                             <button
                                                 onClick={() => openARVCalculator(lead)}
