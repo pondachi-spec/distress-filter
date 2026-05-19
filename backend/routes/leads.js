@@ -168,6 +168,7 @@ router.post('/search', auth, async (req, res) => {
             where: `PHY_ZIPCD='${zipCode}'`,
             outFields: '*',
             returnGeometry: 'false',
+            resultRecordCount: '500',
             f: 'json'
         });
 
