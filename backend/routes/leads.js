@@ -217,8 +217,8 @@ router.post('/search', auth, async (req, res) => {
         }
 
         if (features.length === 0) {
-            console.warn('[FL-ARCGIS] No properties found — returning demo data');
-            return res.json(buildDemoResponse());
+            console.warn('[FL-ARCGIS] No properties found for zip', zipCode);
+            return res.json({ count: 0, leads: [], source: 'FL-PUBLIC', message: `No residential properties found in zip ${zipCode}. This area may be primarily commercial or investor-owned. Try an adjacent zip code.` });
         }
 
         const leads = [];
