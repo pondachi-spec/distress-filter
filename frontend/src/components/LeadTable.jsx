@@ -184,6 +184,9 @@ export default function LeadTable({ leads, onRefresh }) {
                                             {lead.isPreForeclosure && <span title="Pre-Foreclosure" className="text-xs bg-red-500/15 border border-red-500/30 text-red-400 px-1.5 py-0.5 rounded">NOD</span>}
                                             {lead.isTaxDelinquent && <span title="Tax Delinquent" className="text-xs bg-yellow-500/15 border border-yellow-500/30 text-yellow-400 px-1.5 py-0.5 rounded">TAX</span>}
                                             {lead.yearsOwned >= 10 && <span title="Long-term owner" className="text-xs bg-purple-500/15 border border-purple-500/30 text-purple-400 px-1.5 py-0.5 rounded">{lead.yearsOwned}yr</span>}
+                                            {lead.isSeniorOwner && <span title="Senior Owner (65+ / High Equity)" className="text-xs bg-sky-500/15 border border-sky-500/30 text-sky-400 px-1.5 py-0.5 rounded">SEN</span>}
+                                            {lead.isVacant && <span title="Vacant Property" className="text-xs bg-zinc-500/15 border border-zinc-500/30 text-zinc-400 px-1.5 py-0.5 rounded">VAC</span>}
+                                            {lead.hasCodeViolation && <span title="Code Violation on File" className="text-xs bg-pink-500/15 border border-pink-500/30 text-pink-400 px-1.5 py-0.5 rounded">CV</span>}
                                         </div>
                                     </td>
                                     <td className="px-4 py-3 text-center">

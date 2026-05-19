@@ -132,13 +132,21 @@ export default function App() {
                         <p className="text-slate-500 font-semibold uppercase tracking-wider mb-3">Score Breakdown</p>
                         {[
                             { label: 'High Equity >40%', pts: '+30' },
-                            { label: 'Absentee Owner', pts: '+25' },
-                            { label: 'Owned 10+ Years', pts: '+20' },
                             { label: 'Pre-Foreclosure/NOD', pts: '+30' },
+                            { label: 'Absentee Owner', pts: '+25' },
                             { label: 'Tax Delinquent', pts: '+25' },
+                            { label: 'Owned 10+ Years', pts: '+20' },
+                            { label: 'Senior + High Equity', pts: '+20', badge: 'SEN', color: 'text-sky-400' },
+                            { label: 'Code Violation', pts: '+20', badge: 'CV', color: 'text-pink-400' },
+                            { label: 'Vacant Property', pts: '+15', badge: 'VAC', color: 'text-zinc-400' },
                         ].map(item => (
-                            <div key={item.label} className="flex justify-between text-slate-400">
-                                <span>{item.label}</span>
+                            <div key={item.label} className="flex justify-between items-center text-slate-400">
+                                <span className="flex items-center gap-1.5">
+                                    {item.badge && (
+                                        <span className={`text-xs font-semibold ${item.color}`}>[{item.badge}]</span>
+                                    )}
+                                    {item.label}
+                                </span>
                                 <span className="text-purple-400 font-semibold">{item.pts}</span>
                             </div>
                         ))}

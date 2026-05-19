@@ -18,11 +18,47 @@ function calcMotivationScore(props) {
     if (props.yearsOwned >= 10) score += 20;
     if (props.isPreForeclosure) score += 30;
     if (props.isTaxDelinquent) score += 25;
+    if (props.isSeniorOwner && props.equityPercent >= 50) score += 20;  // senior + high equity = downsizing
+    if (props.isVacant) score += 15;                                     // vacant = flexible / distressed
+    if (props.hasCodeViolation) score += 20;                             // regulatory pressure
     score = Math.min(score, 100);
     let motivationClass = 'COLD';
     if (score >= 70) motivationClass = 'HOT';
     else if (score >= 40) motivationClass = 'WARM';
     return { motivationScore: score, motivationClass };
+}
+
+// ==========================================
+// Code Violation Lookup (Miami-Dade & Orlando)
+// ==========================================
+async function checkCodeViolation(address, city) {
+    const cityUpper = (city || '').toUpperCase();
+    try {
+        // Miami-Dade County
+        if (cityUpper.includes('MIAMI') || cityUpper.includes('HIALEAH') || cityUpper.includes('CORAL GABLES') ||
+            cityUpper.includes('HOMESTEAD') || cityUpper.includes('DORAL') || cityUpper.includes('KENDALL')) {
+            const addr = encodeURIComponent(address.toUpperCase());
+            const url = `https://services1.arcgis.com/8Pc9XBTAsYuxx9Ny/arcgis/rest/services/CodeComplianceViolations/FeatureServer/0/query?where=UPPER(VIOLATION_ADDRESS)+LIKE+'%25${addr.substring(0,20)}%25'&outFields=CASE_NUMBER,STATUS&resultRecordCount=1&f=json`;
+            const r = await fetch(url, { timeout: 4000 });
+            if (r.ok) {
+                const d = await r.json();
+                return !!(d.features && d.features.length > 0 && d.features[0].attributes.STATUS !== 'CLOSED');
+            }
+        }
+        // City of Orlando
+        if (cityUpper.includes('ORLANDO')) {
+            const addr = address.replace(/[^a-zA-Z0-9 ]/g, '').toUpperCase().split(' ').slice(0, 3).join(' ');
+            const url = `https://data.cityoforlando.net/resource/k6e8-nw6w.json?$where=upper(address)like'%25${encodeURIComponent(addr)}%25'&$limit=1`;
+            const r = await fetch(url, { timeout: 4000 });
+            if (r.ok) {
+                const d = await r.json();
+                return Array.isArray(d) && d.length > 0;
+            }
+        }
+    } catch (e) {
+        // Code violation lookup is best-effort — never block the main flow
+    }
+    return false;
 }
 
 // ==========================================
@@ -219,10 +255,11 @@ router.post('/search', auth, async (req, res) => {
         for (const feature of features) {
             const a = feature.attributes || {};
 
-            // DOR_UC: Florida Dept of Revenue Use Codes 1-9 = residential
-            // Skip non-residential (commercial, agricultural, government, etc.)
+            // DOR_UC: Florida Dept of Revenue Use Codes
+            // 0 = vacant residential, 1-9 = residential types, 10+ = non-residential
             const dorUC = a.DOR_UC != null ? parseInt(a.DOR_UC, 10) : null;
-            if (dorUC !== null && (dorUC < 1 || dorUC > 9)) continue;
+            if (dorUC !== null && (dorUC < 0 || dorUC > 9)) continue;
+            const isVacant = dorUC === 0;
 
             // Must have a physical address
             if (!a.PHY_ADDR1 || !a.PHY_ADDR1.trim()) continue;
@@ -273,6 +310,17 @@ router.post('/search', auth, async (req, res) => {
             }).lean() : null;
             const isPreForeclosure = !!foreclosureMatch;
 
+            // Senior homestead exemption (Florida Statute 196.075)
+            // ArcGIS field EXMPT_38 corresponds to DOR exemption code 38 (senior exemption)
+            const seniorExemptRaw = a.EXMPT_38 ?? a.SEN_HMSTD ?? a.SENIOR_EXMPT ?? null;
+            const hasSeniorExempt = seniorExemptRaw != null && Number(seniorExemptRaw) > 0;
+            // Heuristic fallback: long-term owner + very high equity suggests senior
+            const isSeniorOwner = hasSeniorExempt || (yearsOwned >= 20 && equityPercent >= 65);
+
+            // Code violation lookup (best-effort, Miami-Dade & Orlando only)
+            const city = a.PHY_CITY || '';
+            const hasCodeViolation = await checkCodeViolation(a.PHY_ADDR1 || '', city);
+
             // Apply filters
             if (equityPercent < minEquity) continue;
             if (absenteeOwner === true && !isAbsenteeOwner) continue;
@@ -280,7 +328,8 @@ router.post('/search', auth, async (req, res) => {
             if (taxDelinquent === true) continue;  // not available yet
 
             const { motivationScore, motivationClass } = calcMotivationScore({
-                equityPercent, isAbsenteeOwner, yearsOwned, isPreForeclosure, isTaxDelinquent
+                equityPercent, isAbsenteeOwner, yearsOwned, isPreForeclosure, isTaxDelinquent,
+                isSeniorOwner, isVacant, hasCodeViolation
             });
 
             // Try all known FDOR NAL field name variants (ArcGIS layer may differ by export)
@@ -313,6 +362,9 @@ router.post('/search', auth, async (req, res) => {
                 yearsOwned,
                 isPreForeclosure,
                 isTaxDelinquent,
+                isSeniorOwner,
+                isVacant,
+                hasCodeViolation,
                 dorUC: dorUC,
                 propertyType: propertyType || 'SFR',
                 motivationScore,
