@@ -181,13 +181,10 @@ router.post('/search', auth, async (req, res) => {
         if (!arcgisRes.ok) {
             const status = arcgisRes.status;
             console.error('[FL-ARCGIS ERROR]', status);
-            if (status === 400 || status === 429) {
-                return res.status(429).json({
-                    error: 'rate_limited',
-                    message: 'ArcGIS is temporarily limiting requests. Please wait 3–5 minutes and try again.'
-                });
-            }
-            return res.json(buildDemoResponse());
+            return res.status(429).json({
+                error: 'rate_limited',
+                message: 'ArcGIS is temporarily unavailable. Please wait 3–5 minutes and try again.'
+            });
         }
 
         const arcgisData = await arcgisRes.json();
