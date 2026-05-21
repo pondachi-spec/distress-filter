@@ -192,15 +192,11 @@ router.post('/search', auth, async (req, res) => {
 
         if (arcgisData.error) {
             console.error('[FL-ARCGIS ERROR]', JSON.stringify(arcgisData.error));
-            // ArcGIS returns 200 with error body when rate limited
-            const msg = (arcgisData.error.message || '').toLowerCase();
-            if (msg.includes('invalid') || msg.includes('query') || arcgisData.error.code === 400) {
-                return res.status(429).json({
-                    error: 'rate_limited',
-                    message: 'ArcGIS is temporarily limiting requests. Please wait 3–5 minutes and try again.'
-                });
-            }
-            return res.json(buildDemoResponse());
+            // ArcGIS returns 200 with error body when rate limited or query fails
+            return res.status(429).json({
+                error: 'rate_limited',
+                message: 'ArcGIS is temporarily unavailable. Please wait 3–5 minutes and try again.'
+            });
         }
 
         const features = (arcgisData.features || []).slice(0, 500);
