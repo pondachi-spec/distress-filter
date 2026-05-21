@@ -42,7 +42,9 @@ export default function App() {
             setLeads(res.data.leads || [])
             toast.success(`Found ${res.data.count} properties`)
         } catch (err) {
-            if (err.response?.status === 429 || err.response?.data?.error === 'rate_limited') {
+            if (err.response?.status === 401 || err.response?.status === 403) {
+                handleLogout()
+            } else if (err.response?.status === 429 || err.response?.data?.error === 'rate_limited') {
                 toast.error('⏳ ArcGIS rate limit hit — wait 3–5 minutes then try again.', { duration: 8000 })
             } else {
                 toast.error(err.response?.data?.error || 'Search failed.')
