@@ -164,11 +164,12 @@ router.post('/search', auth, async (req, res) => {
         console.log(`[CACHE] Skipping cache — fetching fresh from ArcGIS for zip ${zipCode}`);
 
         // ── Fetch fresh from Florida Statewide Cadastral ArcGIS ─────────────
+        // PHY_ZIPCD is a numeric (Double) field — must NOT be quoted in the where clause
         const arcgisParams = new URLSearchParams({
-            where: `PHY_ZIPCD='${zipCode}'`,
+            where: `PHY_ZIPCD=${parseInt(zipCode, 10)}`,
             outFields: '*',
             returnGeometry: 'false',
-            resultRecordCount: '500',
+            resultRecordCount: '2000',
             f: 'json'
         });
 
